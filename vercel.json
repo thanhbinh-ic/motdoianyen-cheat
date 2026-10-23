@@ -4,6 +4,5 @@
       "source": "/game-origin/:path*",
       "destination": "https://motdoianyen.com/:path*"
     }
-  ],
-  "cleanUrls": true
+  ]
 }
