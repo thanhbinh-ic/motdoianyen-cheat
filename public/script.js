@@ -58,6 +58,8 @@
     let autoFarmOn = false;
     let autoFarmWorker = null;
     let lastFarmDay = -1;
+    let hideInbOn = false;
+    try { hideInbOn = localStorage.getItem('mdanHideInb') === '1'; } catch (e) {}
 
     function G(name) {
       try {
@@ -1249,6 +1251,34 @@
     }
 
     // ——— Menu UI ———
+    // ——— TÍNH NĂNG MỚI 8 (v3.8): Gỡ logo 18+ + thanh giờ ở menu, ẩn/hiện nút tin nhắn ———
+    // #age18: game tự tạo 1 lần khi nạp; vừa gỡ node vừa có CSS display:none ở ensureStyle
+    // nên kể cả game tạo lại vẫn không hiện. #m35sb: thanh đồng hồ + ngày/phiên bản phía trên
+    // màn hình menu (menu35() chỉ cập nhật text, không đụng display) nên CSS là đủ.
+    // #inb5Btn: KHÔNG được gỡ node — hàm inbBadge() của game thấy thiếu nút sẽ tự tạo lại
+    // (đúng như khi xoá bằng F12). Vì vậy ẩn bằng CSS theo id qua class trên <html>:
+    // nút dù được tạo lại vẫn bị ẩn; khi tắt tính năng thì game tự quản lý ẩn/hiện như cũ.
+    function applyUiTweaks() {
+      try {
+        var ag = document.getElementById('age18');
+        if (ag) ag.remove();
+      } catch (e) {}
+      try {
+        document.documentElement.classList.toggle('mdan-hide-inb', hideInbOn);
+      } catch (e) {}
+    }
+    function toggleHideInb() {
+      hideInbOn = !hideInbOn;
+      try { localStorage.setItem('mdanHideInb', hideInbOn ? '1' : '0'); } catch (e) {}
+      applyUiTweaks();
+      var b = document.getElementById('mdanHideInbBtn');
+      if (b) {
+        b.textContent = hideInbOn ? '✉️ Ẩn nút tin nhắn: ĐANG BẬT' : '✉️ Ẩn nút tin nhắn: đang tắt';
+        b.style.background = hideInbOn ? '#e8f7e4' : '#fff8ea';
+      }
+      toast(hideInbOn ? '✉️ Đã ẩn nút tin nhắn' : '✉️ Đã hiện lại nút tin nhắn');
+    }
+
     function closeMenu() {
       var m = document.getElementById(MENU_ID);
       if (m) m.remove();
@@ -1291,7 +1321,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.7</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.8</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
@@ -1322,7 +1352,8 @@
         ['✨ Hoàn thành ước mơ hiện tại', completeDreams],
         [hintOn ? '✅ Gợi ý đáp án: ĐANG BẬT' : '✅ Gợi ý đáp án: đang tắt', toggleHint, 'mdanHintBtn'],
         [workFxOn ? '💼 Kết quả CV: ĐANG BẬT' : '💼 Kết quả CV: đang tắt', toggleWorkFx, 'mdanWorkFxBtn'],
-        [turboOn ? '⚡ Tăng tốc: ĐANG BẬT' : '⚡ Tăng tốc: đang tắt', toggleTurbo, 'mdanTurboBtn']
+        [turboOn ? '⚡ Tăng tốc: ĐANG BẬT' : '⚡ Tăng tốc: đang tắt', toggleTurbo, 'mdanTurboBtn'],
+        [hideInbOn ? '✉️ Ẩn nút tin nhắn: ĐANG BẬT' : '✉️ Ẩn nút tin nhắn: đang tắt', toggleHideInb, 'mdanHideInbBtn']
       ];
       var list = card.querySelector('#mdanCheatList');
       items.forEach(function (item) {
@@ -1337,7 +1368,8 @@
                      (id === 'mdanTurboBtn' && turboOn) ||
                      (id === 'mdanWorkFxBtn' && workFxOn) ||
                      (id === 'mdanAutoFarmBtn' && autoFarmOn) ||
-                     (id === 'mdanAutoDreamBtn' && autoDreamComplete);
+                     (id === 'mdanAutoDreamBtn' && autoDreamComplete) ||
+                     (id === 'mdanHideInbBtn' && hideInbOn);
         Object.assign(b.style, {
           width: '100%',
           textAlign: 'left',
@@ -1389,6 +1421,9 @@
         '#sodoi #sdName{flex:1 1 auto!important;min-width:0!important;max-width:none!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}' +
         '#sodoi #sdDate{flex:0 0 auto!important;white-space:nowrap!important;overflow:visible!important}' +
         '#m35w{position:relative;z-index:20}' +
+        '#age18{display:none!important}' +
+        '#m35sb{display:none!important}' +
+        'html.mdan-hide-inb #inb5Btn{display:none!important}' +
         '#dialog{z-index:90!important}' +
         '#dialog .card .stack,#dialog .stack{position:relative;z-index:5}' +
         '#dialog .btn-main,#dialog .btn-sec{position:relative;z-index:6}' +
@@ -1448,8 +1483,9 @@
     }
 
     function boot() {
+      applyUiTweaks();
       ensureCoreBtn();
-      setInterval(ensureCoreBtn, 1200);
+      setInterval(function () { applyUiTweaks(); ensureCoreBtn(); }, 1200);
     }
 
     if (document.body) boot();
