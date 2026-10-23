@@ -32,5 +32,20 @@
 
     <iframe src="https://motdoianyen.com/" title="Một Đời An Yên"></iframe>
 
+    <script>
+        const iframe = document.getElementById('gameFrame');
+
+        iframe.addEventListener('load', function () {
+            try {
+                const scriptEl = iframe.contentWindow.document.createElement('script');
+                scriptEl.src = './script.js';
+                iframe.contentWindow.document.head.appendChild(scriptEl);
+                console.log('✅ Đã nhúng Cheat Menu thành công!');
+            } catch (err) {
+                console.error('❌ Lỗi CORS / Bảo mật Browser:', err);
+            }
+        });
+    </script>
+
 </body>
 </html>
