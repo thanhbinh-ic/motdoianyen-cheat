@@ -20,6 +20,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
+            background-color: #000;
         }
         iframe {
             width: 100%;
@@ -30,8 +31,8 @@
 </head>
 <body>
 
-    <!-- Đã thêm id="gameFrame" ở đây -->
-    <iframe id="gameFrame" src="https://motdoianyen.com/" title="Một Đời An Yên"></iframe>
+    <!-- Sửa src thành đường dẫn proxy nội bộ -->
+    <iframe id="gameFrame" src="/game-origin/" title="Một Đời An Yên"></iframe>
 
     <script>
         const iframe = document.getElementById('gameFrame');
@@ -39,9 +40,10 @@
         if (iframe) {
             iframe.addEventListener('load', function () {
                 try {
-                    const scriptEl = iframe.contentWindow.document.createElement('script');
-                    scriptEl.src = './script.js';
-                    iframe.contentWindow.document.head.appendChild(scriptEl);
+                    const doc = iframe.contentWindow.document;
+                    const scriptEl = doc.createElement('script');
+                    scriptEl.src = '/script.js'; // Chèn script cheat
+                    doc.head.appendChild(scriptEl);
                     console.log('✅ Đã nhúng Cheat Menu thành công!');
                 } catch (err) {
                     console.error('❌ Lỗi CORS / Bảo mật Browser:', err);
