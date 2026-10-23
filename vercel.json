@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/game-origin",
+      "destination": "https://motdoianyen.com/"
+    },
+    {
       "source": "/game-origin/:path*",
       "destination": "https://motdoianyen.com/:path*"
     }
