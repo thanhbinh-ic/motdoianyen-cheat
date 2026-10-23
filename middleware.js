@@ -2,7 +2,7 @@ export const config = {
   matcher: ['/', '/:path*'],
 };
 
-// Sửa lỗi giao diện khi cài trang thành app ra màn hình chính (chế độ standalone, iPhone):r
+// Sửa lỗi giao diện khi cài trang thành app ra màn hình chính (chế độ standalone, iPhone):
 // chuỗi chiều cao 100% html → body → #app → #stage của game bị ngắn hơn màn hình thật
 // khoảng vài chục pt, khiến thanh điều hướng dưới bị đẩy lên cao, hở khoảng trống ở đáy.
 // Cách sửa: neo #app bằng position:fixed theo visual viewport (toàn màn hình thật)
@@ -39,10 +39,25 @@ export default async function middleware(request) {
 
   const contentType = response.headers.get('content-type') || '';
 
-  // Nếu phản hồi là trang HTML, chèn CSS sửa lỗi PWA vào ngay trước </head>
+  // Nếu phản hồi là trang HTML, chỉnh meta + chèn CSS sửa lỗi PWA vào <head>
   // và thẻ <script src="/script.js"></script> vào ngay trước </body>
   if (contentType.includes('text/html')) {
     let html = await response.text();
+
+    // Full màn hình qua tai thỏ/dynamic island: đổi status bar sang black-translucent
+    // để nội dung app tràn lên sát mép trên thay vì chừa một dải trắng.
+    // Game đã có sẵn viewport-fit=cover và padding env(safe-area-inset-top)
+    // nên nội dung không bị tai thỏ che mất.
+    const STATUS_BAR_META = '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">';
+    if (/<meta name="apple-mobile-web-app-status-bar-style"/.test(html)) {
+      html = html.replace(
+        /(<meta name="apple-mobile-web-app-status-bar-style" content=")[^"]*(")/,
+        '$1black-translucent$2'
+      );
+    } else if (html.includes('</head>')) {
+      html = html.replace('</head>', STATUS_BAR_META + '</head>');
+    }
+
     if (html.includes('</head>')) {
       html = html.replace('</head>', PWA_FIX + '</head>');
     }
