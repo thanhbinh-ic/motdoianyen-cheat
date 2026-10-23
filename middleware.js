@@ -2,7 +2,7 @@ export const config = {
   matcher: ['/', '/:path*'],
 };
 
-// Sửa lỗi giao diện khi cài trang thành app ra màn hình chính (chế độ standalone, iPhone):
+// Sửa lỗi giao diện khi cài trang thành app ra màn hình chính (chế độ standalone, iPhone):r
 // chuỗi chiều cao 100% html → body → #app → #stage của game bị ngắn hơn màn hình thật
 // khoảng vài chục pt, khiến thanh điều hướng dưới bị đẩy lên cao, hở khoảng trống ở đáy.
 // Cách sửa: neo #app bằng position:fixed theo visual viewport (toàn màn hình thật)
