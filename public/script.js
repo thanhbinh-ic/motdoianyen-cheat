@@ -754,6 +754,85 @@
       }
     }
 
+    // ——— TÍNH NĂNG MỚI 11 (v3.11): Mod người nổi tiếng — tuổi 18–24, nâng hạng S, hẹn hò không cần độc thân ———
+    // cbDef() là cửa ngõ duy nhất để game lấy thông tin một celeb (hồ sơ, sự kiện, cbHen
+    // đều qua đây) nên bọc nó lại: tuổi luôn đưa về 18–24 (tính cố định theo id nên không
+    // nhảy số giữa các lần gọi; chặn cả dữ liệu ghi đè pf lẫn tuổi tăng theo năm tuoiN),
+    // và hạng A được nâng lên S (từ 5 lên 18 người hạng S).
+    function celebYoungAge(id) {
+      var s = String(id || ''), n = 0;
+      for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
+      return 18 + (n % 7);
+    }
+    function applyCelebMods() {
+      try {
+        var cur = window.cbDef;
+        if (typeof cur !== 'function' || cur._mdanV311) return;
+        var orig = cur;
+        var wrapped = function (id) {
+          var o = orig(id);
+          if (o) {
+            o.tuoi = celebYoungAge(o.id);
+            if (o.hang === 'A') o.hang = 'S';
+          }
+          return o;
+        };
+        wrapped._mdanV311 = true;
+        window.cbDef = wrapped;
+      } catch (e) {}
+    }
+
+    // Đưa thẳng người nổi tiếng đã quen vào Danh bạ như đối tượng hẹn hò: sao đúng
+    // nhánh thành công của cbHen() nhưng bỏ qua mọi cổng chặn — đang có người yêu
+    // (S.you, dòng chữ "đang có người yêu" ở nút Rủ hẹn hò là nói NGƯỜI CHƠI),
+    // chưa độc thân, thiện cảm chưa đủ, hồi chiêu và tung xúc xắc tỉ lệ.
+    function dateCeleb() {
+      if (!needAlive()) return;
+      var S = G('S');
+      var cbMetList = G('cbMetList'), cbSt = G('cbSt'), cbToc = G('cbToc'),
+          dtNew = G('dtNew'), dtAdd = G('dtAdd'), db5 = G('db5'),
+          CB_NGHE = G('CB_NGHE'), DT = G('DT'), R5 = G('R5');
+      if (typeof cbMetList !== 'function' || typeof cbSt !== 'function' ||
+          typeof dtNew !== 'function' || typeof dtAdd !== 'function' || typeof db5 !== 'function')
+        return toast('❌ Không thấy hệ thống người nổi tiếng / danh bạ');
+      var max = DT && DT.max ? DT.max : 50;
+      var lvId = null;
+      try { lvId = typeof R5 === 'function' && R5() ? R5().cbLv : null; } catch (e) {}
+      var list = [];
+      try {
+        list = cbMetList().filter(function (c) {
+          var s = cbSt(c.id);
+          return s && !s.db && !s.love && c.id !== lvId;
+        });
+      } catch (e) {}
+      if (!list.length) return toast('⭐ Chưa có người nổi tiếng nào đã quen mà chưa vào Danh bạ');
+      var added = [];
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i], s = cbSt(c.id);
+        try {
+          var D = db5();
+          if (D && D.L && D.L.length >= max) { toast('⚠️ Danh bạ đã đầy (' + max + ' người)'); break; }
+          var aff = Math.max(50, Math.min(60, Math.round((s.aff || 0) * 0.7)));
+          var toc = null;
+          try { toc = typeof cbToc === 'function' ? cbToc(c) : null; } catch (e) {}
+          var job = CB_NGHE && CB_NGHE[c.nghe] ? CB_NGHE[c.nghe][1] : (c.nghe || '');
+          var p = dtNew('app', c.g, { n: c.ten, g: c.g, age: c.tuoi, job: job, per: c.persona, aff: aff, tag: 'cb', cb: c.id, toc: toc });
+          if (!p) continue;
+          if (c.qg !== 'Việt Nam' && c.n) { p.n = c.n; p.ho = c.ho; p.qt = c.qg; p.kieu = c.kieu; }
+          else {
+            var nm = String(c.ten || '').trim().split(/\s+/);
+            p.n = nm.pop(); p.ho = nm.join(' ') || p.ho; p.qt = 'Việt Nam'; p.kieu = 'vn';
+          }
+          p.met = { d: S.day, how: 'Quen từ giới nổi tiếng' };
+          if (dtAdd(p)) { s.db = p.id; added.push(c.ten); }
+        } catch (e) {}
+      }
+      try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+      refreshUI();
+      if (added.length) toast('💘 Đã đưa vào Danh bạ: ' + added.join(', '));
+      else toast('⚠️ Chưa đưa được ai vào Danh bạ');
+    }
+
     function unlockEnc() {
       var save = G('save');
       if (!save) return toast('❌ Không thấy save');
@@ -1361,6 +1440,7 @@
       try {
         document.documentElement.classList.toggle('mdan-hide-inb', hideInbOn);
       } catch (e) {}
+      try { applyCelebMods(); } catch (e) {}
     }
     function toggleHideInb() {
       hideInbOn = !hideInbOn;
@@ -1416,7 +1496,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.10</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.11</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
@@ -1434,6 +1514,7 @@
         ['🙂 Max tinh thần', function () { maxSpirit(false); }],
         ['⭐ Max nổi tiếng', function () { maxFame(false); }],
         ['🌟 Gặp người nổi tiếng', meetCeleb],
+        ['💘 Hẹn hò người nổi tiếng', dateCeleb],
         ['🎓 Max bằng cấp', maxCerts],
         ['👔 Cấp bậc công việc…', setJobLevel],
         ['🏪 Set doanh thu tiệm…', setShopRevenue],
