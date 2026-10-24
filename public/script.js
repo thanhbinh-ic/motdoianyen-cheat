@@ -1758,6 +1758,70 @@
       } catch (e) {}
     }
 
+    // ——— TÍNH NĂNG MỚI 18 (v3.18): Auto farm — tự tuyển gấp + tự nhận thử việc theo giới tính ———
+    // Dung ham goc cua game: nsPost(env, true) = tuyen gap (phi gapFee 4tr, rieng vp mien
+    // phi; 1 ngay sau co ho so qua cho 'ns8' -> nsCandArrive, tu v3.16 la 10 ho so chia
+    // gioi tinh); nsHire(env, c) = nhan thu viec (tu choi neu het cho: nsCanHire = chua
+    // du slot hoac chua co du phong; thu viec 30 ngay, luong theo nsRange, xoa khoi
+    // N.cand). Loc gioi tinh: nguoi choi nam -> chi duyet ho so nu, nu -> chi duyet
+    // ho so nam (doc G.me qua celebPlayerGender). Ho so khong co p.g (ve tu truoc v3.16,
+    // game goc khong luu gioi tinh) hoac het han (until < S.day) thi bo qua, khong doan.
+    // Chay moi tick cua farm (khong doi sang ngay moi) de ho so ve la nhan ngay; dang
+    // tin chi khi: env dang hoat dong, khong co dot nao dang cho (N.dang), con cho
+    // (nsCanHire), khong con ho so dung gioi tinh dang cho (de khoi chong dot).
+    function autoRecruit() {
+      var hired = [], posted = [];
+      try {
+        var ns8 = G('ns8'), nsOn = G('nsOn'), nsCanHire = G('nsCanHire'), nsPost = G('nsPost'),
+            nsHire = G('nsHire'), nsTen = G('nsTen'), S = G('S');
+        if (typeof ns8 !== 'function' || typeof nsOn !== 'function' || typeof nsCanHire !== 'function' ||
+            typeof nsPost !== 'function' || typeof nsHire !== 'function') return { hired: hired, posted: posted };
+        var pg = null;
+        try { pg = celebPlayerGender(); } catch (e) {}
+        if (pg !== 'M' && pg !== 'F') return { hired: hired, posted: posted };
+        var want = pg === 'M' ? 'F' : 'M';
+        var N = ns8();
+        if (!N || !N.cand || !N.dang) return { hired: hired, posted: posted };
+        var day = (S && S.day) || 0;
+        ['vp', 'kd', 'hc'].forEach(function (env) {
+          try {
+            if (!nsOn(env)) return;
+            var list = (N.cand[env] || []).slice();
+            list.forEach(function (c) {
+              if (!c || c.g !== want) return;
+              if (c.until != null && c.until < day) return;
+              try {
+                if (!nsCanHire(env)) return;
+                var r = nsHire(env, c);
+                if (r && r.ok) {
+                  var nm = c.n;
+                  try { if (typeof nsTen === 'function') nm = nsTen(c); } catch (e) {}
+                  hired.push(nm);
+                }
+              } catch (e) {}
+            });
+            var pending = (N.cand[env] || []).filter(function (c) { return c && (c.until == null || c.until >= day); });
+            var matchingPending = pending.some(function (c) { return c.g === want; });
+            if (!N.dang[env] && nsCanHire(env) && !matchingPending) {
+              try {
+                var pr = nsPost(env, true);
+                if (pr && pr.ok) posted.push(env);
+              } catch (e) {}
+            }
+          } catch (e) {}
+        });
+      } catch (e) {}
+      return { hired: hired, posted: posted };
+    }
+    function autoRecruitTick() {
+      try {
+        var r = autoRecruit();
+        if (r.hired.length) toast('📋 Auto Farm: nhận thử việc ' + r.hired.length + ' người (' + r.hired.join(', ') + ')');
+        if (r.posted.length) toast('📋 Auto Farm: đã đăng tuyển gấp (' + r.posted.join(', ') + '), 1 ngày nữa có hồ sơ');
+        return r.hired.length > 0 || r.posted.length > 0;
+      } catch (e) { return false; }
+    }
+
     function setGameSpeedMax(on) {
       try {
         var X5 = G('X5');
@@ -1810,6 +1874,7 @@
       }
       if (tryNoteAsk()) return;
       if (tryScamMp()) return;
+      if (autoRecruitTick()) return;
 
       var phGoBtn = document.getElementById('phGo') || document.querySelector('.ph-go, [data-act="ph-go"]');
       if (phGoBtn && !phGoBtn.hidden && phGoBtn.offsetParent !== null && !phGoBtn.disabled) {
@@ -2034,7 +2099,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.17</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.18</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
