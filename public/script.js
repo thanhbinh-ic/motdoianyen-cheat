@@ -764,6 +764,15 @@
       for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
       return 18 + (n % 7);
     }
+    // Số năm đã trôi qua trong lượt chơi — game tự cộng vào tuổi celeb qua R5().tuoiN
+    // (cũng là cơ chế game dùng để tăng tuổi người nổi tiếng mỗi năm).
+    function celebTuoiN() {
+      try {
+        var R5 = G('R5');
+        if (typeof R5 === 'function') { var R = R5(); if (R && R.tuoiN) return R.tuoiN; }
+      } catch (e) {}
+      return 0;
+    }
     function applyCelebMods() {
       try {
         var cur = window.cbDef;
@@ -772,13 +781,37 @@
         var wrapped = function (id) {
           var o = orig(id);
           if (o) {
-            o.tuoi = celebYoungAge(o.id);
+            // Tuổi gốc 18–24, mỗi năm trong game tự +1 như người thường.
+            o.tuoi = celebYoungAge(o.id) + celebTuoiN();
             if (o.hang === 'A') o.hang = 'S';
           }
           return o;
         };
         wrapped._mdanV311 = true;
         window.cbDef = wrapped;
+      } catch (e) {}
+    }
+
+    // ——— TÍNH NĂNG MỚI 12 (v3.12): Vá bug game kẹt trạng thái người yêu cũ ———
+    // Bug gốc của game: singleBegin() (hàm chia tay/ly hôn) đặt S.single và chuyển
+    // người yêu thành người cũ trong Danh bạ, nhưng QUÊN xoá S.you — và cả game
+    // không chỗ nào xoá S.you cả. Hậu quả: thanh trạng thái vẫn hiện tên người cũ
+    // (#hYou đọc thẳng S.you), nút Rủ hẹn hò người nổi tiếng báo "đang có người yêu"
+    // và cbHen bị chặn dù đã độc thân. Vá: đang độc thân (S.single) mà S.you còn
+    // sót thì dọn sạch + lưu lại + vẽ lại HUD.
+    var staleYouFixed = false;
+    function fixStaleYou() {
+      try {
+        var S = G('S');
+        if (S && S.single && S.you) {
+          S.you = null;
+          try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+          refreshUI();
+          if (!staleYouFixed) {
+            staleYouFixed = true;
+            toast('🔧 Đã dọn trạng thái người yêu cũ còn sót (bug của game)');
+          }
+        }
       } catch (e) {}
     }
 
@@ -1441,6 +1474,7 @@
         document.documentElement.classList.toggle('mdan-hide-inb', hideInbOn);
       } catch (e) {}
       try { applyCelebMods(); } catch (e) {}
+      try { fixStaleYou(); } catch (e) {}
     }
     function toggleHideInb() {
       hideInbOn = !hideInbOn;
@@ -1496,7 +1530,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.11</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.12</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
