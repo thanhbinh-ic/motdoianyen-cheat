@@ -754,11 +754,15 @@
       }
     }
 
-    // ——— TÍNH NĂNG MỚI 11 (v3.11): Mod người nổi tiếng — tuổi 18–24, nâng hạng S, hẹn hò không cần độc thân ———
+    // ——— TÍNH NĂNG MỚI 11 (v3.11) + PHÂN BỐ LẠI HẠNG (v3.13): Mod người nổi tiếng ———
     // cbDef() là cửa ngõ duy nhất để game lấy thông tin một celeb (hồ sơ, sự kiện, cbHen
     // đều qua đây) nên bọc nó lại: tuổi luôn đưa về 18–24 (tính cố định theo id nên không
-    // nhảy số giữa các lần gọi; chặn cả dữ liệu ghi đè pf lẫn tuổi tăng theo năm tuoiN),
-    // và hạng A được nâng lên S (từ 5 lên 18 người hạng S).
+    // nhảy số giữa các lần gọi; chặn dữ liệu ghi đè pf) rồi cộng tuoiN để mỗi năm +1.
+    // Hạng được phân bố lại toàn bộ 33 người: B:13, A:12, S:8 (thay cho gốc B:15, A:13,
+    // S:5). Trong 8 người hạng S: 5 người khác giới với người chơi, 3 người cùng giới
+    // (người chơi nam → S: 5 nữ, 3 nam; người chơi nữ → ngược lại). Phân bố xáo trộn
+    // giả ngẫu nhiên có seed theo danh sách id + giới tính người chơi nên ổn định giữa
+    // các lần nạp game, không nhảy hạng lung tung.
     function celebYoungAge(id) {
       var s = String(id || ''), n = 0;
       for (var i = 0; i < s.length; i++) n += s.charCodeAt(i);
@@ -773,21 +777,73 @@
       } catch (e) {}
       return 0;
     }
+    // Giới tính người chơi: G.me ('M'/'F').
+    function celebPlayerGender() {
+      try {
+        var Gg = G('G');
+        if (Gg && (Gg.me === 'M' || Gg.me === 'F')) return Gg.me;
+      } catch (e) {}
+      return null;
+    }
+    function celebSeededShuffle(arr, seed) {
+      var a = arr.slice(), s = (seed >>> 0) || 1;
+      function rnd() { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x80000000; }
+      for (var i = a.length - 1; i > 0; i--) {
+        var j = Math.floor(rnd() * (i + 1));
+        var t = a[i]; a[i] = a[j]; a[j] = t;
+      }
+      return a;
+    }
+    // Bảng phân hạng id -> 'B'/'A'/'S', tính 1 lần rồi cache theo giới tính người chơi.
+    // Lưu ý: cbAll() gọi cbDef() nên khi xây bảng từ trong bản bọc phải tạm trả cbDef
+    // về bản gốc để tránh đệ quy vô hạn (đoạn này chạy đồng bộ nên không ai xen vào).
+    var celebRankMap = null, celebRankKey = '';
+    function celebBuildRankMap(orig) {
+      var pg = celebPlayerGender();
+      var key = pg || '?';
+      if (celebRankMap && celebRankKey === key) return celebRankMap;
+      var roster = null;
+      try {
+        var cbAll = G('cbAll');
+        if (typeof cbAll === 'function') {
+          var cur = window.cbDef;
+          window.cbDef = orig;
+          try { roster = cbAll(); } finally { window.cbDef = cur; }
+        }
+      } catch (e) {}
+      if (!roster || !roster.length) return null;
+      var ids = roster.map(function (c) { return c.id; }).sort().join(',');
+      var seed = 0;
+      for (var k = 0; k < ids.length; k++) seed = ((seed * 31) + ids.charCodeAt(k)) >>> 0;
+      var sh = celebSeededShuffle(roster, seed);
+      var opp = pg ? sh.filter(function (c) { return c.g !== pg; }) : sh.slice();
+      var same = pg ? sh.filter(function (c) { return c.g === pg; }) : [];
+      var sSet = opp.slice(0, 5).concat(same.slice(0, 3));
+      var rest = sh.filter(function (c) { return sSet.indexOf(c) < 0; });
+      var map = {};
+      sSet.forEach(function (c) { map[c.id] = 'S'; });
+      rest.slice(0, 12).forEach(function (c) { map[c.id] = 'A'; });
+      rest.slice(12).forEach(function (c) { map[c.id] = 'B'; });
+      celebRankMap = map; celebRankKey = key;
+      return map;
+    }
     function applyCelebMods() {
       try {
         var cur = window.cbDef;
-        if (typeof cur !== 'function' || cur._mdanV311) return;
+        if (typeof cur !== 'function' || cur._mdanV313) return;
         var orig = cur;
         var wrapped = function (id) {
           var o = orig(id);
           if (o) {
             // Tuổi gốc 18–24, mỗi năm trong game tự +1 như người thường.
             o.tuoi = celebYoungAge(o.id) + celebTuoiN();
-            if (o.hang === 'A') o.hang = 'S';
+            // Phân bố lại hạng: B:13, A:12, S:8 (S: 5 khác giới + 3 cùng giới).
+            var map = celebBuildRankMap(orig);
+            if (map && map[o.id]) o.hang = map[o.id];
           }
           return o;
         };
-        wrapped._mdanV311 = true;
+        wrapped._mdanV313 = true;
         window.cbDef = wrapped;
       } catch (e) {}
     }
@@ -1530,7 +1586,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.12</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.13</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
