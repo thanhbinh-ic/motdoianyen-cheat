@@ -689,7 +689,7 @@
       if (!silent) toast('🏦 Điểm CIC = 850 (Rất tốt)');
     }
 
-    // ——— TÍNH NĂNG MỚI 10 (v3.9): Gặp người nổi tiếng ngay lập tức ———
+    // ——— TÍNH NĂNG MỚI 10 (v3.9, nâng cấp v3.10): Gặp người nổi tiếng ngay lập tức ———
     // Bình thường cbDaily() chỉ cho "gặp tình cờ" với tỉ lệ ~2,2% + theo độ nổi tiếng
     // mỗi ngày (hồi chiêu 14 ngày) và sự kiện với người đã quen tỉ lệ 10%/ngày.
     // Hàm này bỏ qua tỉ lệ + hồi chiêu, gọi thẳng cbEvent() của game:
@@ -713,6 +713,23 @@
           var c = un[Math.floor(Math.random() * un.length)];
           B.meetCd = S.day; B.evD = S.day;
           await cbEvent('tinh_co_gap', c);
+          // v3.10: nếu màn gặp gỡ thành công (đã "quen"), đẩy thiện cảm lên 100,
+          // xoá hồi chiêu và mở luôn bước Xin liên lạc (cbTry 'lien') cho nối mạch.
+          try {
+            var s = cbSt(c.id);
+            if (s && s.met) {
+              s.aff = 100;
+              s.cd = 0;
+              var persist = G('persist');
+              if (typeof persist === 'function') persist();
+              toast('⭐ ' + (c.ten || 'Người nổi tiếng') + ': thiện cảm = 100');
+              var cbTry = G('cbTry');
+              if (typeof cbTry === 'function') {
+                await new Promise(function (r) { setTimeout(r, 80); });
+                await cbTry(c, 'lien');
+              }
+            }
+          } catch (e) {}
           return;
         }
         var met = [];
@@ -1399,7 +1416,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.9</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.10</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
