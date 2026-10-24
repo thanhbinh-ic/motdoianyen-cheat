@@ -57,6 +57,9 @@
     let workFxObs = null;
     let autoFarmOn = false;
     let autoFarmWorker = null;
+    let autoDayOn = false;
+    let sceneSkipWrapped = false;
+    try { autoDayOn = localStorage.getItem('mdanAutoDay') === '1'; } catch (e) {}
     let lastFarmDay = -1;
     let hideInbOn = false;
     try { hideInbOn = localStorage.getItem('mdanHideInb') === '1'; } catch (e) {}
@@ -445,6 +448,9 @@
     }
 
     function autoDailyRoutine() {
+      var upName = null;
+      try { upName = autoShopUpgrade(); } catch (e) {}
+      if (upName) toast('🛠️ Auto Farm: bắt đầu nâng cấp ' + upName + ' cho tiệm');
       autoPetCare();
       autoDreamDaily();
       if (autoDreamComplete) completeDreamsCore(); // (4) bảng chúc mừng do Auto Farm tự bấm qua
@@ -1336,6 +1342,129 @@
           var p = el.closest('.cal') || el.parentElement;
           if (p) p.click();
         });
+        // Popup tin nhan (.mp-card): bam vao vung khong phai nut -> game tu dat fast=true, cac nap() thoat som.
+        document.querySelectorAll('.mp-card').forEach(function (el) {
+          try { if (el.offsetParent !== null) el.click(); } catch (e) {}
+        });
+        // Force-complete cac tween dang chay (xe dap, di bo...): tween chi noi suy gia tri, nhay thang ve dich la an toan.
+        try {
+          var tws = G('tweens');
+          if (Array.isArray(tws)) tws.forEach(function (w) { try { if (w && typeof w.ms === 'number') w.t = w.ms; } catch (e) {} });
+        } catch (e) {}
+      } catch (e) {}
+    }
+
+    // ——— TÍNH NĂNG MỚI 14 (v3.14): Nút nổi tự động qua ngày + auto nâng cấp tiệm + skip cảnh ———
+    // (a) Skip cảnh: game choi canh bang wait() (fade 320/60/280, chat, hen ho...) va
+    // tween() (xe dap 1500ms, di bo 900ms). skipNow() cua game chi xu ly wait co co sk
+    // va typing; cac wait thuong va tween chi duoc rut ngan boi spdK. Boc them 2 ham nay:
+    // khi Auto Farm BAT thi wait thuong bi tran 50ms (van la timer that nen vong nap()
+    // dung gt van chay dung, khong treo tab) va tween ve dich ngay lap tuc.
+    function installSceneSkip() {
+      try {
+        if (sceneSkipWrapped) return;
+        var w0 = window.wait, t0 = window.tween;
+        if (typeof w0 === 'function' && !w0._mdanSkip) {
+          var wW = function (ms, sk) {
+            try { if (autoFarmOn && !sk && typeof ms === 'number' && ms > 50) ms = 50; } catch (e) {}
+            return w0.apply(this, [ms, sk]);
+          };
+          wW._mdanSkip = true; window.wait = wW;
+        }
+        if (typeof t0 === 'function' && !t0._mdanSkip) {
+          var tW = function (o, k, a, b, ms) {
+            if (autoFarmOn) { try { o[k] = b; } catch (e) {} return Promise.resolve(); }
+            return t0.apply(this, [o, k, a, b, ms]);
+          };
+          tW._mdanSkip = true; window.tween = tW;
+        }
+        sceneSkipWrapped = true;
+      } catch (e) {}
+    }
+    // (b) Nguong bam nut Qua ngay: nut sdGo luc het ngay co text 'Qua ngày'. Auto Farm cu
+    // luon bo qua nut nay (dung o Cuoc doi). Khi nut noi BAT thi bam luon.
+    function shouldClickSdGo(sdTxt, dayOn) {
+      var t = String(sdTxt || '');
+      return t.indexOf('Qua ngày') < 0 || !!dayOn;
+    }
+    // (c) Xu ly hop thoai cuoi ngay: 'Hết việc hôm nay' -> BAT: bam 'Qua ngày', TAT: dung yen
+    // (khong bam, de game doi huynh); hop 'Trước khi ngủ' -> BAT: bam thang 'Ngủ luôn'
+    // (nhanh hon duong vong qua Xem dien thoai), TAT: giu nguyen hanh vi cu.
+    function dayEndAction(dlgText, dayOn) {
+      var t = String(dlgText || '');
+      if (t.indexOf('Hết việc hôm nay') >= 0) return dayOn ? 'qua' : 'wait';
+      if (t.indexOf('Ngủ luôn') >= 0) return dayOn ? 'ngu' : null;
+      return null;
+    }
+    // (d) Nut noi tu dong qua ngay: chi hien khi Auto Farm dang chay.
+    function updateAutoDayBtn() {
+      try {
+        var b = document.getElementById('mdanAutoDayBtn');
+        if (!autoFarmOn) { if (b) b.remove(); return; }
+        if (!b) {
+          b = document.createElement('button');
+          b.id = 'mdanAutoDayBtn';
+          Object.assign(b.style, { position: 'fixed', right: '12px', bottom: '110px', zIndex: 1000003,
+            padding: '10px 14px', borderRadius: '999px', border: '1px solid #c8b49a',
+            fontSize: '14px', fontWeight: 'bold', cursor: 'pointer',
+            boxShadow: '0 2px 10px rgba(0,0,0,.25)' });
+          b.addEventListener('click', function () { toggleAutoDay(); });
+          document.body.appendChild(b);
+        }
+        b.textContent = autoDayOn ? '⏭️ Tự động qua ngày: ĐANG BẬT' : '⏭️ Tự động qua ngày: đang tắt';
+        b.style.background = autoDayOn ? '#cdeed6' : '#fff8ea';
+      } catch (e) {}
+    }
+    function toggleAutoDay() {
+      autoDayOn = !autoDayOn;
+      try { localStorage.setItem('mdanAutoDay', autoDayOn ? '1' : '0'); } catch (e) {}
+      updateAutoDayBtn();
+      toast('⏭️ Tự động qua ngày: ' + (autoDayOn ? 'BẬT (hết ngày sẽ tự sang ngày mới)' : 'TẮT (hết ngày dừng lại như trước)'));
+    }
+    // (e) Auto nang cap tiem K1: giong het nut 'Nâng cấp' trong tab Nâng cấp tiệm (#ns8).
+    // 4 hang muc (thietbi, matbang, congsuat, sao), moi hang muc toi da cap 3; chi thi cong
+    // 1 hang muc/luc (nc.b); gia = von * ncCost[cap] lam tron 100k; so ngay = ncDays[cap].
+    // Chi lam khi du tien, lay hang muc dau tien con nang duoc va du tien theo thu tu dinh san.
+    function autoShopUpgrade() {
+      try {
+        var kd5 = G('kd5'), k1 = G('k1'), K1 = G('K1'), save = G('save'), S = G('S');
+        if (typeof kd5 !== 'function' || typeof k1 !== 'function' || !K1 || !K1.nc) return null;
+        var k = kd5(); if (!k) return null;
+        var K = k1(k); if (!K || !K.nc) return null;
+        var nc = K.nc;
+        if (nc.b) return null; // dang thi cong hang muc khac
+        var keys = Object.keys(K1.nc);
+        for (var i = 0; i < keys.length; i++) {
+          var x = keys[i], lv = nc[x] || 0;
+          if (lv >= 3) continue;
+          var c = Math.round(k.von * K1.ncCost[lv] / 1e5) * 1e5;
+          if (!save || save.money < c) continue;
+          var ds = K1.ncDays[lv];
+          save.money -= c;
+          nc.b = { k: x, til: (S.day || 0) + ds };
+          try { var k1Time = G('k1Time'); if (typeof k1Time === 'function') k1Time(K1.time ? K1.time.nc : 30); } catch (e) {}
+          try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+          try { var updHUD = G('updHUD'); if (typeof updHUD === 'function') updHUD(); } catch (e) {}
+          return K1.nc[x].n;
+        }
+      } catch (e) {}
+      return null;
+    }
+    // Chua lanh gia tri spd vo hieu do ban cu ghi (spd=5): game UI khong bao gio tao ra
+    // gia tri nay, spd5() tu fallback ve 1 nen dua ve 1 cho sach.
+    var spdFixed = false;
+    function normalizeSpdOnce() {
+      try {
+        if (spdFixed) return; spdFixed = true;
+        var X5 = G('X5');
+        if (typeof X5 === 'function') {
+          var X = X5();
+          if ([0.75, 1, 1.5, 2].indexOf(X.spd) < 0) {
+            X.spd = 1;
+            var persist = G('persist'); if (typeof persist === 'function') persist();
+            var spdApply = G('spdApply'); if (typeof spdApply === 'function') spdApply();
+          }
+        }
       } catch (e) {}
     }
 
@@ -1347,8 +1476,8 @@
         if (typeof X5 === 'function') {
           var X = X5();
           if (on) {
-            if (X._mdanSpdBak == null) X._mdanSpdBak = X.spd;
-            X.spd = 5;
+            if (X._mdanSpdBak == null) X._mdanSpdBak = ([0.75, 1, 1.5, 2].indexOf(X.spd) >= 0 ? X.spd : 1);
+            X.spd = 2; // SPD5 chi co [0.75,1,1.5,2]; dat 5 bi spd5() loai ve 1 (spdK=1.5, cham hon ca mac dinh). 2 -> spdK=0.75, wait/tween/CSS nhanh gap doi so voi truoc.
           } else if (X._mdanSpdBak != null) {
             X.spd = X._mdanSpdBak;
             delete X._mdanSpdBak;
@@ -1463,6 +1592,19 @@
 
       var dlg = document.getElementById('dialog');
       if (dlg && !dlg.hidden) {
+        var dlgAct = dayEndAction(dlg.textContent || '', autoDayOn);
+        if (dlgAct === 'wait') return; // het ngay, nut noi dang TAT: dung yen cho huynh
+        if (dlgAct === 'qua') {
+          var qBtn = dlg.querySelector('.evopt:not([disabled])');
+          if (qBtn) { qBtn.click(); return; }
+        }
+        if (dlgAct === 'ngu') {
+          var nBtn = null;
+          dlg.querySelectorAll('button').forEach(function (bb) {
+            if (!nBtn && (bb.textContent || '').indexOf('Ngủ luôn') >= 0 && !bb.disabled) nBtn = bb;
+          });
+          if (nBtn) { nBtn.click(); return; }
+        }
         var planDlgBtn = dlg.querySelector('button[data-act*="plan"], button[data-act*="chot"], button[data-act*="kd"]');
         if (planDlgBtn && !planDlgBtn.disabled) {
           planDlgBtn.click();
@@ -1483,7 +1625,7 @@
       var sdGoBtn = document.getElementById('sdGo');
       if (sdGoBtn && !sdGoBtn.hidden && sdGoBtn.offsetParent !== null) {
         var sdTxt = (sdGoBtn.textContent || '').trim();
-        if (!sdTxt.includes('Qua ngày')) {
+        if (shouldClickSdGo(sdTxt, autoDayOn)) {
           sdGoBtn.click();
           return;
         }
@@ -1497,6 +1639,8 @@
       autoFarmOn = !autoFarmOn;
       if (autoFarmWorker) { autoFarmWorker.stop(); autoFarmWorker = null; }
       if (autoFarmOn) {
+        installSceneSkip();
+        updateAutoDayBtn();
         if (!hintOn) toggleHint();
         if (!workFxOn) toggleWorkFx();
         if (!turboOn) toggleTurbo();
@@ -1504,6 +1648,7 @@
         autoFarmWorker = createWorkerInterval(runAutoFarm, 250);
         toast('🌾 Auto Farm & Vận hành tiệm: BẬT');
       } else {
+        updateAutoDayBtn();
         toast('🌾 Auto Farm & Vận hành tiệm: TẮT');
       }
       var b = document.getElementById('mdanAutoFarmBtn');
@@ -1531,6 +1676,7 @@
       } catch (e) {}
       try { applyCelebMods(); } catch (e) {}
       try { fixStaleYou(); } catch (e) {}
+      try { normalizeSpdOnce(); } catch (e) {}
     }
     function toggleHideInb() {
       hideInbOn = !hideInbOn;
@@ -1586,7 +1732,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.13</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.14</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
