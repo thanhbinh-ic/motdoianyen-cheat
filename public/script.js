@@ -791,6 +791,21 @@
     }
     // Giới tính người chơi: G.me ('M'/'F').
     function celebPlayerGender() {
+      // BUG goc (v3.13-v3.18): gioi tinh nguoi choi nam o bien let G cua game (khong phai
+      // window.G), ma helper G('G') cua cheat lai tra ve chinh ham helper (ten G bi
+      // shadow trong scope cheat) nen .me luon undefined -> tra null -> autoRecruit
+      // dung yen hoan toan, con chia rank/hoso roi ve fallback. Doc tu save (let save
+      // khong bi shadow, G('save') lay duoc): uu tien g19 (gioi tinh da chon o man
+      // Choi moi), roi den save.genders.
+      try {
+        var sv = G('save');
+        if (sv) {
+          var g19 = sv.g19 && sv.g19.genders;
+          if (g19 && (g19.me === 'M' || g19.me === 'F')) return g19.me;
+          var gs = sv.genders;
+          if (gs && (gs.me === 'M' || gs.me === 'F')) return gs.me;
+        }
+      } catch (e) {}
       try {
         var Gg = G('G');
         if (Gg && (Gg.me === 'M' || Gg.me === 'F')) return Gg.me;
@@ -1769,7 +1784,7 @@
     // Chay moi tick cua farm (khong doi sang ngay moi) de ho so ve la nhan ngay; dang
     // tin chi khi: env dang hoat dong, khong co dot nao dang cho (N.dang), con cho
     // (nsCanHire), khong con ho so dung gioi tinh dang cho (de khoi chong dot).
-    function autoRecruit() {
+    function autoRecruit(excludeName) {
       var hired = [], posted = [];
       try {
         var ns8 = G('ns8'), nsOn = G('nsOn'), nsCanHire = G('nsCanHire'), nsPost = G('nsPost'),
@@ -1789,6 +1804,13 @@
             var list = (N.cand[env] || []).slice();
             list.forEach(function (c) {
               if (!c || c.g !== want) return;
+              if (excludeName) {
+                try {
+                  var nm0 = c.n;
+                  if (typeof nsTen === 'function') nm0 = nsTen(c);
+                  if (nm0 === excludeName) return;
+                } catch (e) {}
+              }
               if (c.until != null && c.until < day) return;
               try {
                 if (!nsCanHire(env)) return;
@@ -1813,9 +1835,101 @@
       } catch (e) {}
       return { hired: hired, posted: posted };
     }
-    function autoRecruitTick() {
+    var recruitDialogFor = null;
+    function findCandById(id) {
       try {
-        var r = autoRecruit();
+        var ns8f = G('ns8');
+        if (typeof ns8f !== 'function') return null;
+        var Nf = ns8f();
+        if (!Nf || !Nf.cand) return null;
+        var envs = ['vp', 'kd', 'hc'];
+        for (var i = 0; i < envs.length; i++) {
+          var L = Nf.cand[envs[i]] || [];
+          for (var j = 0; j < L.length; j++) if (L[j] && L[j].id === id) return { env: envs[i], c: L[j] };
+        }
+      } catch (e) {}
+      return null;
+    }
+    function candDisplayName(c) {
+      try {
+        var nsTenDu = G('nsTenDu');
+        if (typeof nsTenDu === 'function') return nsTenDu(c);
+      } catch (e) {}
+      try {
+        var nsTen2 = G('nsTen');
+        if (typeof nsTen2 === 'function') return nsTen2(c);
+      } catch (e) {}
+      return c.n;
+    }
+    // Buoc tuyen dung moi tick: uu tien bam nut UI nhu huynh thao tac tay (panel mo),
+    // roi ve goi ham truc tiep khi panel khong mo. Thu tu: (a) hop phong van do cheat
+    // mo -> bam #nsNhan; (b) panel co nut ho so dung gioi tinh -> bam nut do (cho
+    // hop mo o tick sau); (c) nut #nsPostGap dang bat + du tien -> bam dang tuyen gap;
+    // (d) goi truc tiep autoRecruit (bo qua ung vien dang hien trong hop cua huynh).
+    function recruitStep() {
+      try {
+        var pg = null;
+        try { pg = celebPlayerGender(); } catch (e) {}
+        if (pg !== 'M' && pg !== 'F') return false;
+        var want = pg === 'M' ? 'F' : 'M';
+        var S = G('S');
+        var day = (S && S.day) || 0;
+        var dialogName = null;
+        var dlg = null;
+        try { dlg = document.getElementById('ns8d'); } catch (e) {}
+        if (dlg) {
+          try {
+            var h2 = dlg.querySelector('h2');
+            dialogName = h2 ? (h2.textContent || '') : '';
+          } catch (e) {}
+          if (recruitDialogFor) {
+            var tracked = findCandById(recruitDialogFor);
+            var hireBtn = null;
+            try { hireBtn = document.getElementById('nsNhan'); } catch (e) {}
+            var nameOk = false;
+            try { if (tracked && candDisplayName(tracked.c) === dialogName) nameOk = true; } catch (e) {}
+            if (tracked && nameOk && hireBtn && !hireBtn.disabled) {
+              var nm = candDisplayName(tracked.c);
+              hireBtn.click();
+              recruitDialogFor = null;
+              try {
+                var still = document.getElementById('ns8d');
+                if (!still) toast('📋 Auto Farm: nhận thử việc ' + nm);
+              } catch (e) {}
+              return true;
+            }
+            // Hop het han / cua huynh mo tay / nut bi khoa: bo claim, khong dong vao.
+            recruitDialogFor = null;
+          }
+        }
+        try {
+          var btns = document.querySelectorAll('.ns-m[data-cand]');
+          for (var bi = 0; bi < btns.length; bi++) {
+            var bid = btns[bi].dataset && btns[bi].dataset.cand;
+            if (!bid) continue;
+            var found = findCandById(bid);
+            if (!found) continue;
+            var cc = found.c;
+            if (cc.g !== want) continue;
+            if (cc.until != null && cc.until < day) continue;
+            btns[bi].click();
+            recruitDialogFor = bid;
+            return true;
+          }
+        } catch (e) {}
+        try {
+          var postBtn = document.getElementById('nsPostGap');
+          var sv = G('save');
+          if (postBtn && !postBtn.disabled && sv && sv.money >= 4000000) {
+            postBtn.click();
+            try {
+              var postBtn2 = document.getElementById('nsPostGap');
+              if (!postBtn2 || postBtn2.disabled) toast('📋 Auto Farm: đã đăng tuyển gấp, 1 ngày nữa có hồ sơ');
+            } catch (e) {}
+            return true;
+          }
+        } catch (e) {}
+        var r = autoRecruit(dialogName);
         if (r.hired.length) toast('📋 Auto Farm: nhận thử việc ' + r.hired.length + ' người (' + r.hired.join(', ') + ')');
         if (r.posted.length) toast('📋 Auto Farm: đã đăng tuyển gấp (' + r.posted.join(', ') + '), 1 ngày nữa có hồ sơ');
         return r.hired.length > 0 || r.posted.length > 0;
@@ -1874,7 +1988,7 @@
       }
       if (tryNoteAsk()) return;
       if (tryScamMp()) return;
-      if (autoRecruitTick()) return;
+      if (recruitStep()) return;
 
       var phGoBtn = document.getElementById('phGo') || document.querySelector('.ph-go, [data-act="ph-go"]');
       if (phGoBtn && !phGoBtn.hidden && phGoBtn.offsetParent !== null && !phGoBtn.disabled) {
@@ -2099,7 +2213,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.18</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.19</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
