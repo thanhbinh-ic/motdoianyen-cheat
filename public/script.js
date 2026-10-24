@@ -660,6 +660,83 @@
       }
     }
 
+    // ——— TÍNH NĂNG MỚI 9 (v3.9): Max điểm tín dụng CIC ———
+    // Điểm CIC nằm ở bankSt().cic, thang 300–850 (game kẹp bằng cicClamp);
+    // 850 = hạng "Rất tốt", được giữ tối đa 4 khoản vay cùng lúc (cicSlots).
+    // Ưu tiên đi qua cicAdd() của game để nhật ký điểm (cicLog) vẫn nhất quán.
+    function maxCIC(silent) {
+      if (!needAlive()) return;
+      var bankSt = G('bankSt');
+      if (typeof bankSt !== 'function') return !silent && toast('❌ Không thấy hệ thống ngân hàng');
+      var B = null;
+      try { B = bankSt(); } catch (e) {}
+      if (!B) return !silent && toast('❌ Chưa có dữ liệu ngân hàng');
+      if (!Array.isArray(B.cicLog)) B.cicLog = [];
+      if (typeof B.cic !== 'number' || !isFinite(B.cic)) {
+        var cicInit210 = G('cicInit210');
+        try { B.cic = typeof cicInit210 === 'function' ? cicInit210(B) : 600; }
+        catch (e) { B.cic = 600; }
+      }
+      if (B.cic < 850) {
+        var cicAdd = G('cicAdd');
+        var done = false;
+        if (typeof cicAdd === 'function') {
+          try { cicAdd(850 - B.cic, 'Cheat Menu'); done = B.cic >= 850; } catch (e) {}
+        }
+        if (!done) B.cic = 850;
+      }
+      refreshUI();
+      if (!silent) toast('🏦 Điểm CIC = 850 (Rất tốt)');
+    }
+
+    // ——— TÍNH NĂNG MỚI 10 (v3.9): Gặp người nổi tiếng ngay lập tức ———
+    // Bình thường cbDaily() chỉ cho "gặp tình cờ" với tỉ lệ ~2,2% + theo độ nổi tiếng
+    // mỗi ngày (hồi chiêu 14 ngày) và sự kiện với người đã quen tỉ lệ 10%/ngày.
+    // Hàm này bỏ qua tỉ lệ + hồi chiêu, gọi thẳng cbEvent() của game:
+    // còn người chưa gặp -> thẻ "Gặp tình cờ" (tinh_co_gap);
+    // đã gặp hết -> 1 sự kiện ngẫu nhiên với người đã quen (ưu tiên loại còn đủ điều kiện).
+    async function meetCeleb() {
+      if (!needAlive()) return;
+      var S = G('S');
+      var cbAll = G('cbAll'), cbSt = G('cbSt'), cb5 = G('cb5'),
+          cbEvent = G('cbEvent'), cbMetList = G('cbMetList'), cbEligible = G('cbEligible');
+      if (typeof cbAll !== 'function' || typeof cbSt !== 'function' ||
+          typeof cb5 !== 'function' || typeof cbEvent !== 'function')
+        return toast('❌ Không thấy hệ thống người nổi tiếng');
+      var B = cb5();
+      var un = [];
+      try { un = cbAll().filter(function (c) { return c && !cbSt(c.id).met; }); } catch (e) {}
+      closeMenu();
+      await new Promise(function (r) { setTimeout(r, 80); });
+      try {
+        if (un.length) {
+          var c = un[Math.floor(Math.random() * un.length)];
+          B.meetCd = S.day; B.evD = S.day;
+          await cbEvent('tinh_co_gap', c);
+          return;
+        }
+        var met = [];
+        try { met = typeof cbMetList === 'function' ? cbMetList() : []; } catch (e) {}
+        if (!met.length) return toast('⭐ Danh sách người nổi tiếng đang trống');
+        var kinds = ['moi_tiec', 'tin_don', 'antifan', 'paparazzi', 'hop_bao', 'mot_buoi_dien', 'phim_truong'];
+        var cand = [];
+        if (typeof cbEligible === 'function') {
+          kinds.forEach(function (k) {
+            met.forEach(function (cc) {
+              try { if (cbEligible(k, cc)) cand.push([k, cc]); } catch (e) {}
+            });
+          });
+        }
+        var pair = cand.length
+          ? cand[Math.floor(Math.random() * cand.length)]
+          : ['tin_don', met[Math.floor(Math.random() * met.length)]];
+        B.evCd = S.day; B.evD = S.day;
+        await cbEvent(pair[0], pair[1]);
+      } catch (e) {
+        try { console.warn(e); } catch (err) {}
+      }
+    }
+
     function unlockEnc() {
       var save = G('save');
       if (!save) return toast('❌ Không thấy save');
@@ -715,6 +792,7 @@
         maxShopStat(true);
         maxFamilyThan(true);
         maxContactsAff(true);
+        maxCIC(true);
         refreshUI();
       } catch (e) {
         console.warn(e);
@@ -1321,7 +1399,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.8</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.9</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
@@ -1332,11 +1410,13 @@
         ['💵 Đặt số tiền…', setMoney],
         ['❤️ Max thiện cảm', function () { maxAff(false); }],
         ['🤝 Max uy tín', function () { maxUt(false); }],
+        ['🏦 Max điểm CIC', function () { maxCIC(false); }],
         ['👪 Max mức thân gia đình', function () { maxFamilyThan(false); }],
         ['📇 Max thiện cảm danh bạ', function () { maxContactsAff(false); }],
         ['💼 Max công việc', function () { maxWorkStat(false); }],
         ['🙂 Max tinh thần', function () { maxSpirit(false); }],
         ['⭐ Max nổi tiếng', function () { maxFame(false); }],
+        ['🌟 Gặp người nổi tiếng', meetCeleb],
         ['🎓 Max bằng cấp', maxCerts],
         ['👔 Cấp bậc công việc…', setJobLevel],
         ['🏪 Set doanh thu tiệm…', setShopRevenue],
