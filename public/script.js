@@ -451,6 +451,9 @@
       var upName = null;
       try { upName = autoShopUpgrade(); } catch (e) {}
       if (upName) toast('🛠️ Auto Farm: bắt đầu nâng cấp ' + upName + ' cho tiệm');
+      var lifeActs = [];
+      try { lifeActs = autoLifeRoutine(); } catch (e) {}
+      if (lifeActs.length) toast('🌿 Auto Farm: ' + lifeActs.join(', '));
       var promoNames = [];
       try { promoNames = autoPromoteStaff(); } catch (e) {}
       if (promoNames.length) toast('⬆️ Auto Farm: đề bạt ' + promoNames.length + ' nhân sự (' + promoNames.join(', ') + ')');
@@ -1551,6 +1554,111 @@
       return done;
     }
 
+    // ——— TÍNH NĂNG MỚI 16 (v3.16): Tuyển dụng 10 hồ sơ chia giới tính + auto hành động đời sống ———
+    // (a) Tuyển dụng: game goc nsCandArrive() moi dot chi them 3 ho so (roi cat tong ve 6).
+    // Boc lai: moi dot them 10 ho so moi, chia gioi tinh theo G.me (nam -> 7 nu/3 nam,
+    // nu -> 7 nam/3 nu; khong biet gioi tinh thi 5/5). Gioi tinh ung vien von chi nam o ten
+    // (nsNewName chon g roi sinh ten theo g, khong luu p.g) nen vua gan p.g vua sinh lai
+    // ten theo gioi tinh bang npcName(g,{vn:true}) cho khop.
+    function nsCandArriveMod(env) {
+      try {
+        var ns8 = G('ns8'), nsOn = G('nsOn'), nsCand = G('nsCand'), nsLog = G('nsLog'),
+            nsIc = G('nsIc'), nsEnvLabel = G('nsEnvLabel'), sdToast = G('sdToast'),
+            S = G('S'), npcName = G('npcName');
+        if (typeof ns8 !== 'function' || typeof nsOn !== 'function' || typeof nsCand !== 'function' ||
+            typeof nsLog !== 'function' || typeof nsIc !== 'function' || typeof nsEnvLabel !== 'function') return false;
+        var N = ns8();
+        if (!N) return false;
+        N.dang[env] = 0;
+        if (!nsOn(env)) return true;
+        var day = (S && S.day) || 0;
+        var list = (N.cand[env] || []).filter(function (c) { return c && c.until >= day; });
+        var fresh = [];
+        for (var i = 0; i < 10; i++) fresh.push(nsCand(env));
+        var pg = null;
+        try { pg = celebPlayerGender(); } catch (e) {}
+        var genders = [];
+        if (pg === 'M' || pg === 'F') {
+          var opp = pg === 'M' ? 'F' : 'M';
+          for (var j = 0; j < 7; j++) genders.push(opp);
+          for (var k = 0; k < 3; k++) genders.push(pg);
+        } else {
+          for (var j = 0; j < 5; j++) { genders.push('M'); genders.push('F'); }
+        }
+        for (var s = genders.length - 1; s > 0; s--) {
+          var r = Math.floor(Math.random() * (s + 1));
+          var tmp = genders[s]; genders[s] = genders[r]; genders[r] = tmp;
+        }
+        fresh.forEach(function (p, idx) {
+          var g = genders[idx];
+          p.g = g;
+          try {
+            if (typeof npcName === 'function') {
+              var nm = npcName(g, { vn: true });
+              if (nm) { p.n = nm.n; p.ho = nm.ho; p.kieu = nm.kieu; }
+            }
+          } catch (e) {}
+        });
+        N.cand[env] = list.concat(fresh).slice(-20);
+        nsLog(nsIc(env) + ' Có 10 hồ sơ ứng tuyển mới. Vào trang ' + nsEnvLabel(env) + ' → Tuyển dụng để phỏng vấn.', 'good');
+        try { if (typeof sdToast === 'function') sdToast(nsIc(env) + ' Có hồ sơ ứng tuyển', 'Vào Tuyển dụng để phỏng vấn'); } catch (e) {}
+        return true;
+      } catch (e) { return false; }
+    }
+    function installRecruitMod() {
+      try {
+        var cur = window.nsCandArrive;
+        if (typeof cur !== 'function' || cur._mdanV316) return;
+        var orig = cur;
+        var wrapped = function (env) {
+          if (nsCandArriveMod(env)) return;
+          return orig(env);
+        };
+        wrapped._mdanV316 = true;
+        window.nsCandArrive = wrapped;
+      } catch (e) {}
+    }
+    // (b) Auto hanh dong doi song (chay 1 lan/ngay trong autoDailyRoutine, dung ham goc
+    // cua game nen dieu kien tien/cooldown deu do game tu chan):
+    // - skHospital: nam vien (+25 suc khoe, phi 2% tai san [5tr,200tr], cooldown 30 ngay);
+    //   them cua rieng: chi khi suc khoe < 80 (tren 80 thi +25 bi tran, phi tien).
+    // - skCheckup: kham dinh ky (phi 1.5tr, +6, cooldown 90 ngay).
+    // - skGym: tap the duc (phi 600k, goi 30 ngay).
+    // - bhDo('qua'/'dulich'/'suanha'): qua lon / dua bo me di choi / sua nha cho bo me
+    //   (cooldown 30/90/365 ngay, phi theo % tai san).
+    // - dlGo: di du lich voi nguoi yeu (chi khi dang co nguoi yeu, lay muc cao nhat con
+    //   du tien + het cooldown: nuoc ngoai 60tr/120 ngay, trong nuoc 15tr/60 ngay, di gan 3tr/30 ngay).
+    function autoLifeRoutine() {
+      var acts = [];
+      try {
+        var S = G('S');
+        var sk5 = G('sk5');
+        if (typeof sk5 === 'function') {
+          var hp = null;
+          try { hp = sk5().hp; } catch (e) {}
+          var skHospital = G('skHospital');
+          if (typeof skHospital === 'function' && (hp == null || hp < 80) && skHospital()) acts.push('Nằm viện điều trị');
+          var skCheckup = G('skCheckup');
+          if (typeof skCheckup === 'function' && skCheckup()) acts.push('Khám định kỳ');
+          var skGym = G('skGym');
+          if (typeof skGym === 'function' && skGym()) acts.push('Tập thể dục');
+        }
+        var bhDo = G('bhDo');
+        if (typeof bhDo === 'function') {
+          if (bhDo('qua')) acts.push('Mua quà lớn cho bố mẹ');
+          if (bhDo('dulich')) acts.push('Đưa bố mẹ đi chơi');
+          if (bhDo('suanha')) acts.push('Sửa nhà cho bố mẹ');
+        }
+        var dlGo = G('dlGo');
+        if (typeof dlGo === 'function' && S && !S.single) {
+          for (var i = 2; i >= 0; i--) {
+            if (dlGo(i)) { acts.push('Đi du lịch với người yêu'); break; }
+          }
+        }
+      } catch (e) {}
+      return acts;
+    }
+
     function setGameSpeedMax(on) {
       try {
         var X5 = G('X5');
@@ -1762,6 +1870,7 @@
       try { applyCelebMods(); } catch (e) {}
       try { fixStaleYou(); } catch (e) {}
       try { normalizeSpdOnce(); } catch (e) {}
+      try { installRecruitMod(); } catch (e) {}
     }
     function toggleHideInb() {
       hideInbOn = !hideInbOn;
@@ -1817,7 +1926,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.15</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.16</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
