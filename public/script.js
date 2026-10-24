@@ -1659,6 +1659,105 @@
       return acts;
     }
 
+    // ——— TÍNH NĂNG MỚI 17 (v3.17): Sống X ngày ———
+    // Game von co san advanceDays() o cuoi moi ngay choi: gap ngau nhien (doc than 1-3,
+    // da cuoi 2-6, dang hen ho 1), cat gap khi gap cot moc quan he (100/200/300/365/500/
+    // 730/1000/1095/1500/2000 ngay) hoac ngay co su kien (nextEventDay), cac ngay tua
+    // duoc chay dayEcon (luong/thu nhap) + idleStress (cang thang) + ghi nhat ky jSkip.
+    // Mod nay khong tua giua ngay (se lam hong vong lap ngay dang chay) ma boc
+    // window.advanceDays: huynh nhap X, moi lan game tu goi advanceDays o cuoi ngay thi
+    // gap = so ngay con lai (van cat theo cot moc/su kien nhu goc), het X thi tu tra ve
+    // hanh vi goc. Su kien hen lich (cho) den han trong thoi gian tua se no vao cuoi
+    // ngay choi dau tien sau khi tua (choDaily chay o endOfDay, xu ly ca muc qua han).
+    var jumpRemaining = 0, jumpDay0 = 0, jumpSanityDone = false, jumpResumeToasted = false;
+    try {
+      var jr = parseInt(localStorage.getItem('mdanJumpDays'), 10);
+      if (isFinite(jr) && jr > 0) jumpRemaining = jr;
+      var jd = parseInt(localStorage.getItem('mdanJumpDay0'), 10);
+      if (isFinite(jd) && jd > 0) jumpDay0 = jd;
+    } catch (e) {}
+    function jumpLeft() { return jumpRemaining; }
+    function jumpSave(n) {
+      try {
+        localStorage.setItem('mdanJumpDays', String(n));
+        localStorage.setItem('mdanJumpDay0', String(jumpDay0));
+      } catch (e) {}
+    }
+    function askJumpDays() {
+      try {
+        var cur = jumpRemaining > 0 ? jumpRemaining : 0;
+        var raw = window.prompt(cur > 0
+          ? 'Đang tua còn ' + cur + ' ngày. Nhập số ngày mới muốn tua (0 = hủy tua, tối đa 3650):'
+          : 'Nhập số ngày muốn sống thêm (1–3650):', cur > 0 ? String(cur) : '7');
+        if (raw == null || String(raw).trim() === '') return;
+        var n = parseInt(String(raw).trim(), 10);
+        if (n === 0) { jumpRemaining = 0; jumpDay0 = 0; jumpSave(0); toast('⏭️ Đã hủy tua ngày.'); return; }
+        if (!isFinite(n) || n < 1 || n > 3650) { toast('⏭️ Số ngày không hợp lệ (1–3650).'); return; }
+        var S0 = G('S');
+        jumpRemaining = n; jumpDay0 = (S0 && S0.day) || 0;
+        jumpSanityDone = true; jumpResumeToasted = true;
+        jumpSave(n); installJumpWrap();
+        toast('⏭️ Đã đặt tua ' + n + ' ngày — sẽ tua ở cuối ngày hôm nay; gặp sự kiện/cột mốc thì dừng lại chơi ngày đó rồi tua tiếp.');
+      } catch (e) {}
+    }
+    async function advanceDaysJump() {
+      var S = G('S'), save = G('save');
+      var relDay = G('relDay'), nextEventDay = G('nextEventDay'), dayMontage = G('dayMontage'),
+          jSkip = G('jSkip'), dayEcon = G('dayEcon'), idleStress = G('idleStress');
+      if (!S || typeof relDay !== 'function' || typeof nextEventDay !== 'function' ||
+          typeof dayMontage !== 'function' || typeof jSkip !== 'function' ||
+          typeof dayEcon !== 'function' || typeof idleStress !== 'function') return false;
+      var cur = S.day, rl = relDay();
+      var gap = jumpRemaining;
+      if (!(gap >= 1)) return false;
+      if (!S.single) {
+        var ms = [100, 200, 300, 365, 500, 730, 1000, 1095, 1500, 2000];
+        for (var mi = 0; mi < ms.length; mi++) {
+          var m = ms[mi];
+          if (rl < m && rl + gap >= m) { gap = m - rl; S.milestone = m; break; }
+        }
+      }
+      var evd = nextEventDay(cur, cur + gap - 1);
+      if (evd) { gap = evd - cur; if (S.milestone && S.milestone > cur + gap) S.milestone = null; }
+      if (gap > 1) {
+        // Montage khong catch: neu RUN doi giua chung, dayMontage tu nem ABORT va
+        // vong lap ngay goc se dung nhu binh thuong (S.day chua doi, remaining nguyen).
+        await dayMontage(cur + 1, cur + gap - 1);
+        jSkip(cur + 1, cur + gap - 1);
+        S.dayPlanDay = cur;
+        for (var d = cur + 1; d <= cur + gap - 1; d++) { S.day = d; dayEcon(d); idleStress(d); }
+        S.dayPlanDay = null; S.day = cur;
+        try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+      }
+      S.day = cur + gap;
+      if (save && save.best && S.diffId != null && S.day > (save.best[S.diffId] || 0)) {
+        save.best[S.diffId] = S.day;
+        try { var persist2 = G('persist'); if (typeof persist2 === 'function') persist2(); } catch (e) {}
+      }
+      jumpRemaining -= gap;
+      if (jumpRemaining < 0) jumpRemaining = 0;
+      jumpSave(jumpRemaining);
+      if (jumpRemaining > 0) toast('⏭️ Tua dừng ở ngày ' + S.day + ' (có sự kiện/cột mốc), còn ' + jumpRemaining + ' ngày — chơi xong ngày này sẽ tua tiếp.');
+      else toast('⏭️ Đã sống thêm ' + gap + ' ngày, tới ngày ' + S.day + '.');
+      return true;
+    }
+    function installJumpWrap() {
+      try {
+        var cur = window.advanceDays;
+        if (typeof cur !== 'function' || cur._mdanV317) return;
+        var orig = cur;
+        var wrapped = async function () {
+          if (jumpRemaining > 0) {
+            if (await advanceDaysJump()) return;
+            // Helper thieu truoc khi doi trang thai: roi ve ham goc de vong ngay khong ket.
+          }
+          return orig();
+        };
+        wrapped._mdanV317 = true;
+        window.advanceDays = wrapped;
+      } catch (e) {}
+    }
+
     function setGameSpeedMax(on) {
       try {
         var X5 = G('X5');
@@ -1871,6 +1970,15 @@
       try { fixStaleYou(); } catch (e) {}
       try { normalizeSpdOnce(); } catch (e) {}
       try { installRecruitMod(); } catch (e) {}
+      try { installJumpWrap(); } catch (e) {}
+      try {
+        if (jumpRemaining > 0 && !jumpSanityDone) {
+          jumpSanityDone = true;
+          var Sj = G('S');
+          if (Sj && jumpDay0 > 0 && Sj.day < jumpDay0) { jumpRemaining = 0; jumpDay0 = 0; jumpSave(0); }
+          else if (!jumpResumeToasted) { jumpResumeToasted = true; toast('⏭️ Đang tua dở còn ' + jumpRemaining + ' ngày (đã lưu từ lần trước) — sẽ tua tiếp ở cuối ngày.'); }
+        }
+      } catch (e) {}
     }
     function toggleHideInb() {
       hideInbOn = !hideInbOn;
@@ -1926,13 +2034,14 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.16</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.17</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
         '<div style="display:grid;gap:8px" id="mdanCheatList"></div>';
       var items = [
         [autoFarmOn ? '🌾 Auto Farm & Vận hành tiệm: ĐANG BẬT' : '🌾 Auto Farm & Vận hành tiệm: đang tắt', toggleAutoFarm, 'mdanAutoFarmBtn'],
+        [(jumpLeft() > 0 ? '⏭️ Đang tua: còn ' + jumpLeft() + ' ngày (bấm để đổi/hủy)' : '⏭️ Sống X ngày…'), askJumpDays, 'mdanJumpBtn'],
         ['💰 Cộng +50 triệu', function () { addMoney(50000000); }],
         ['💵 Đặt số tiền…', setMoney],
         ['❤️ Max thiện cảm', function () { maxAff(false); }],
