@@ -1005,6 +1005,7 @@
         maxFamilyThan(true);
         maxContactsAff(true);
         maxCIC(true);
+        maxStyle(true);
         refreshUI();
       } catch (e) {
         console.warn(e);
@@ -1936,6 +1937,35 @@
       } catch (e) { return false; }
     }
 
+    // ——— TÍNH NĂNG MỚI 20 (v3.20): Max điểm phong cách ———
+    // Phong cach khong phai chi so luu san: sh9Agg() tinh tu do dang so huu (moi
+    // nhom lay top SH9_PCN mon co pc cao nhat, do cu nhan 0.5, do tieu hao khong
+    // tinh) + cac boost tam o.tmp, roi kep tran 100. Game tu tao boost tam khi
+    // DUNG do tieu hao co f.pc: o.tmp.push({pc, until: S.day+30}).
+    // Cheat lam dung vay: xoa boost cu cua cheat (danh dau _mdan), tinh lai pc,
+    // bu phan thieu bang 1 boost tam 30 ngay. Farm chay moi ngay nen boost duoc
+    // lam moi hang ngay (thuc chat vinh vien khi farm bat); tat farm thi het han
+    // sau 30 ngay nhu do tieu hao that.
+    function maxStyle(silent) {
+      try {
+        var sh9 = G('sh9'), sh9Agg = G('sh9Agg'), S = G('S');
+        if (typeof sh9 !== 'function' || typeof sh9Agg !== 'function' || !S || !S.alive) return;
+        var o = sh9();
+        if (!o) return;
+        o.tmp = (o.tmp || []).filter(function (t) { return !t._mdan; });
+        o.agg = null;
+        var cur = 0;
+        try { cur = sh9Agg().pc || 0; } catch (e) {}
+        if (cur < 100) {
+          o.tmp.push({ pc: 100 - cur, until: S.day + 30, _mdan: 1 });
+          o.agg = null;
+          try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+          try { var updHUD = G('updHUD'); if (typeof updHUD === 'function') updHUD(); } catch (e) {}
+        }
+        if (!silent) toast('✨ Phong cách = 100/100');
+      } catch (e) {}
+    }
+
     function setGameSpeedMax(on) {
       try {
         var X5 = G('X5');
@@ -2213,7 +2243,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.19</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.20</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
@@ -2231,6 +2261,7 @@
         ['💼 Max công việc', function () { maxWorkStat(false); }],
         ['🙂 Max tinh thần', function () { maxSpirit(false); }],
         ['⭐ Max nổi tiếng', function () { maxFame(false); }],
+        ['✨ Max phong cách', function () { maxStyle(false); }],
         ['🌟 Gặp người nổi tiếng', meetCeleb],
         ['💘 Hẹn hò người nổi tiếng', dateCeleb],
         ['🎓 Max bằng cấp', maxCerts],
