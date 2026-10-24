@@ -451,6 +451,9 @@
       var upName = null;
       try { upName = autoShopUpgrade(); } catch (e) {}
       if (upName) toast('🛠️ Auto Farm: bắt đầu nâng cấp ' + upName + ' cho tiệm');
+      var promoNames = [];
+      try { promoNames = autoPromoteStaff(); } catch (e) {}
+      if (promoNames.length) toast('⬆️ Auto Farm: đề bạt ' + promoNames.length + ' nhân sự (' + promoNames.join(', ') + ')');
       autoPetCare();
       autoDreamDaily();
       if (autoDreamComplete) completeDreamsCore(); // (4) bảng chúc mừng do Auto Farm tự bấm qua
@@ -1468,6 +1471,86 @@
       } catch (e) {}
     }
 
+    // ——— TÍNH NĂNG MỚI 15 (v3.15): Auto farm — từ chối tổng đài lừa đảo, đề bạt nhân sự, ghi trí nhớ ———
+    // (a) Tổng đài lừa đảo: game dung SCAM_ST (who bat dau 'Số lạ', call nhac 'trúng giải'),
+    // hien qua msgPop (#mpop > .mp-card) voi 2 nut [yes, no]; chon no (index 1) la an toan
+    // (chi them tin bao giai trao cho nguoi khac), chon yes la mat tien. Nhan dien: header
+    // co 'Số lạ' + chat co 'trúng' + co nut tu choi. .mp-card chi ton tai khi popup mo
+    // (dong la innerHTML='') nen gap card la biet dang mo.
+    function isScamMp(headerText, chatText) {
+      var h = String(headerText || ''), c = String(chatText || '');
+      return h.indexOf('Số lạ') >= 0 && c.indexOf('trúng') >= 0;
+    }
+    function scamRejectIndex(labels) {
+      var rej = -1, acc = -1;
+      for (var i = 0; i < labels.length; i++) {
+        var t = String(labels[i] || '');
+        if (/không tin|ngắt máy|cúp máy|lừa đảo/i.test(t)) { if (rej < 0) rej = i; }
+        if (/làm theo/i.test(t)) { if (acc < 0) acc = i; }
+      }
+      if (rej >= 0) return rej;
+      if (labels.length === 2 && acc >= 0) return acc === 0 ? 1 : 0;
+      return -1;
+    }
+    function tryScamMp() {
+      // true = dang co popup lua dao (da bam tu choi hoac dang doi nut hien ra): dung yen,
+      // khong bam lung tung phia sau modal.
+      try {
+        var card = document.querySelector('.mp-card');
+        if (!card) return false;
+        var hdr = card.querySelector('.mp-h');
+        var chat = card.querySelector('.mp-chat');
+        if (!hdr || !chat) return false;
+        if (!isScamMp(hdr.textContent || '', chat.textContent || '')) return false;
+        var btns = card.querySelectorAll('.mp-ch button');
+        if (btns && btns.length) {
+          var labels = [];
+          for (var i = 0; i < btns.length; i++) labels.push(btns[i].textContent || '');
+          var idx = scamRejectIndex(labels);
+          if (idx >= 0 && btns[idx] && !btns[idx].disabled) btns[idx].click();
+        }
+        return true;
+      } catch (e) { return false; }
+    }
+    // (b) Hop 'Ghi vào trí nhớ?': nut .go chi render khi con slot (S.notes.length < save.slots)
+    // nen bam .go luon an toan; khong co .go (day slot) thi dung yen cho huynh tu quyet.
+    function tryNoteAsk() {
+      try {
+        var box = document.getElementById('noteAsk');
+        if (!box || box.hidden) return false;
+        var go = box.querySelector('.go:not([disabled])');
+        if (go) go.click();
+        return true;
+      } catch (e) { return false; }
+    }
+    // (c) Auto de bat nhan su: dung he thong NS cua game. Dieu kien (nsDbOk): co cap tiep
+    // theo, nang luc >= muc, tham nien >= ngay, gan bo >= muc, khong dang thu viec.
+    // Tac dung (nsDeBat): chuc vu +1, luong tinh lai (kd/hc), gan bo +8, nang luc +3 (max 95).
+    function autoPromoteStaff() {
+      var done = [];
+      try {
+        var nsAll = G('nsAll'), nsDbOk = G('nsDbOk'), nsDeBat = G('nsDeBat'), nsTen = G('nsTen');
+        if (typeof nsAll !== 'function' || typeof nsDbOk !== 'function' || typeof nsDeBat !== 'function') return done;
+        ['vp', 'kd', 'hc'].forEach(function (env) {
+          var list = [];
+          try { list = nsAll(env) || []; } catch (e) {}
+          list.forEach(function (p) {
+            if (!p) return;
+            try {
+              if (!nsDbOk(p)) return;
+              var r = nsDeBat(env, p);
+              if (r && r.ok) {
+                var nm = p.n;
+                try { if (typeof nsTen === 'function') nm = nsTen(p); } catch (e) {}
+                done.push(nm);
+              }
+            } catch (e) {}
+          });
+        });
+      } catch (e) {}
+      return done;
+    }
+
     function setGameSpeedMax(on) {
       try {
         var X5 = G('X5');
@@ -1518,6 +1601,8 @@
         autoMaxAllStats(true);
         autoDailyRoutine();
       }
+      if (tryNoteAsk()) return;
+      if (tryScamMp()) return;
 
       var phGoBtn = document.getElementById('phGo') || document.querySelector('.ph-go, [data-act="ph-go"]');
       if (phGoBtn && !phGoBtn.hidden && phGoBtn.offsetParent !== null && !phGoBtn.disabled) {
@@ -1732,7 +1817,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.14</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.15</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
