@@ -650,6 +650,23 @@
         if (x.kid) x.kid.gk = 100;
         n++;
       });
+      // Con cua ban: KHONG nam trong gp5().ppl ma o rieng gd5().con (moi dua
+      // {n, born, tier, gk}); cay gia pha ve chung qua gpKids() voi thanh bar
+      // = Math.round(c.gk||50) nen phai set c.gk moi len bar. Game tu clamp gk
+      // 0..100 (moi cho tang/giam deu clamp) nen 100 la gia tri hop le.
+      try {
+        var gd5 = G('gd5');
+        if (typeof gd5 === 'function') {
+          var GD = gd5();
+          if (GD && Array.isArray(GD.con)) {
+            GD.con.forEach(function (c) {
+              if (!c) return;
+              c.gk = 100;
+              n++;
+            });
+          }
+        }
+      } catch (e) {}
       if (!silent) {
         try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
         refreshUI();
@@ -2262,7 +2279,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.21</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.22</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
