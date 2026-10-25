@@ -302,6 +302,25 @@
           }
         }
       } catch (e) {}
+      // Quan ly chi nhanh: nam o k.cn[].ql, NGOAI danh sach nsAll/nsList (den
+      // ham nsFind cua game cung phai va rieng moi tim thay ho) nen maxNhanSu cu
+      // bo sot hoan toan — dung anh huynh chup: quan ly chi nhanh 17 van 67/70
+      // trong khi nhan vien thuong da 100/100. Bo sung: quet ca k.cn[].ql.
+      try {
+        var kd5 = G('kd5');
+        if (typeof kd5 === 'function') {
+          var k = kd5();
+          if (k && Array.isArray(k.cn)) {
+            k.cn.forEach(function (c) {
+              if (!c || !c.ql) return;
+              c.ql.nl = 100;
+              c.ql.gb = 100;
+              if (c.ql.load != null) c.ql.load = 0;
+              n++;
+            });
+          }
+        }
+      } catch (e) {}
       if (!silent) {
         refreshUI();
         toast(n ? ('👥 Max NL+GB ' + n + ' nhân sự') : '⚠️ Chưa có nhân sự');
@@ -2243,7 +2262,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.20</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.21</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
