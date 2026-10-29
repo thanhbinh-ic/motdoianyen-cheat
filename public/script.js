@@ -2242,6 +2242,189 @@
       if (m) m.remove();
     }
 
+
+    // ——— Xuyên không (DLC, game v2.1.2) ———
+    // DLC chạy như một lượt riêng (CUR='dlc'): S.dl = {tt, earn, so, the, ch, ask, hint}.
+    // Điểm Hạng = tt + 2×(số mục Sổ) + 10×(thử thách phụ xong); ngưỡng Hạng lấy từ K.rank.
+    function dlcActive() {
+      try {
+        var f = G('dlcIn');
+        return typeof f === 'function' ? !!f() : false;
+      } catch (e) { return false; }
+    }
+
+    function dlcState() {
+      try {
+        var dlD = G('dlD'), dlK = G('dlK');
+        if (typeof dlD !== 'function' || typeof dlK !== 'function') return null;
+        var d = dlD(), K = dlK();
+        if (!d || !K) return null;
+        return { d: d, K: K };
+      } catch (e) { return null; }
+    }
+
+    function dlcSaveNow() {
+      try {
+        var f = G('dlcSave');
+        if (typeof f === 'function') { f(); return; }
+      } catch (e) {}
+      refreshUI();
+    }
+
+    function dlcScoreNow(st) {
+      try {
+        var f = G('dlcScore');
+        if (typeof f === 'function') return f();
+      } catch (e) {}
+      var d = st.d;
+      var soN = Object.keys(d.so || {}).length;
+      var ph = 0;
+      (st.K.ch || []).forEach(function (c) {
+        if (!c.main && d.ch[c.id] && d.ch[c.id].st === 'done') ph++;
+      });
+      return (d.tt || 0) + 2 * soN + 10 * ph;
+    }
+
+    function dlcRankName(lv) {
+      try {
+        var rn = G('DLC_RN');
+        if (rn && rn[lv]) return rn[lv];
+      } catch (e) {}
+      return 'lv' + lv;
+    }
+
+    function dlcStatusText() {
+      var st = dlcState();
+      if (!st) return '🌀 Xuyên không: chưa vào chuyến';
+      var S = G('S') || {};
+      var sc = dlcScoreNow(st);
+      var lv = 1;
+      try {
+        var rlv = G('dlcRankLv');
+        if (typeof rlv === 'function') lv = rlv(sc);
+      } catch (e) {}
+      var R = st.K.rank || { bac: 80, vang: 150 };
+      return '🌀 ' + (st.K.ic || '⏳') + ' ' + (st.K.n || 'Xuyên không') +
+        ' · ngày ' + (S.day || 0) + ' · ' + (st.d.tt || 0) + ' ĐTT' +
+        ' · ' + sc + ' điểm · Hạng ' + dlcRankName(lv) +
+        (lv < 3 ? ' (cần ' + (R.vang - sc) + ' nữa lên Vàng)' : '');
+    }
+
+    function dlcMaxRank(silent) {
+      var st = dlcState();
+      if (!st) return toast('❌ Chưa vào chuyến xuyên không');
+      var R = st.K.rank || { bac: 80, vang: 150 };
+      var sc = dlcScoreNow(st);
+      var need = Math.max(0, R.vang - sc);
+      if (need <= 0) { if (!silent) toast('🏆 Đã đủ điểm Hạng Vàng'); return; }
+      var add = null;
+      try { add = G('dttAdd'); } catch (e) {}
+      if (typeof add === 'function') add(need, 'Cheat: đủ Hạng Vàng');
+      else { st.d.tt = (st.d.tt || 0) + need; st.d.earn = (st.d.earn || 0) + need; }
+      dlcSaveNow();
+      if (!silent) toast('🧠 +' + need + ' ĐTT — đủ Hạng Vàng');
+    }
+
+    function dlcOpenAllSo(silent) {
+      var st = dlcState();
+      if (!st) return toast('❌ Chưa vào chuyến xuyên không');
+      var open = null;
+      try { open = G('dlcSoOpen'); } catch (e) {}
+      if (typeof open !== 'function') return toast('❌ Không thấy hàm Sổ của game');
+      var n = 0;
+      (st.K.so || []).forEach(function (e) {
+        if (!st.d.so[e.id]) { try { if (open(e.id)) n++; } catch (err) {} }
+      });
+      dlcSaveNow();
+      if (!silent) toast(n > 0 ? '📖 Đã mở ' + n + ' mục Sổ Tri Thức' : '📖 Sổ đã mở hết rồi');
+      return n;
+    }
+
+    function dlcLearnAllCards(silent) {
+      var st = dlcState();
+      if (!st) return toast('❌ Chưa vào chuyến xuyên không');
+      var S = G('S') || {};
+      var n = 0;
+      (st.K.the || []).forEach(function (c) {
+        if (!st.d.the[c.id]) { st.d.the[c.id] = S.day || 0; n++; }
+      });
+      if (n > 0) { st.d.prog = S.day || st.d.prog; dlcSaveNow(); }
+      if (!silent) toast(n > 0 ? '🎓 Đã học ' + n + ' thẻ (miễn phí)' : '🎓 Đã học hết thẻ rồi');
+      return n;
+    }
+
+    function dlcFinishAllChallenges(silent) {
+      var st = dlcState();
+      if (!st) return toast('❌ Chưa vào chuyến xuyên không');
+      var done = null, state = null;
+      try { done = G('dlcChDone'); state = G('dlcChState'); } catch (e) {}
+      if (typeof done !== 'function') return toast('❌ Không thấy hàm thử thách của game');
+      var n = 0;
+      (st.K.ch || []).forEach(function (c) {
+        var isDone = false;
+        if (typeof state === 'function') { try { isDone = state(c) === 'done'; } catch (err) {} }
+        else isDone = !!(st.d.ch[c.id] && st.d.ch[c.id].st === 'done');
+        if (!isDone) { try { if (done(c.id)) n++; } catch (err) {} }
+      });
+      dlcSaveNow();
+      if (!silent) toast(n > 0 ? '🎯 Đã hoàn thành ' + n + ' thử thách (+ĐTT)' : '🎯 Thử thách xong hết rồi');
+      return n;
+    }
+
+    function dlcScriptABoost() {
+      var st = dlcState();
+      if (!st) return toast('❌ Chưa vào chuyến xuyên không');
+      var save = null;
+      try { save = G('save'); } catch (e) {}
+      if (!save || !save.dlc || save.dlc.k !== 'a') return toast('❌ Chỉ dùng ở Làng quê 1993');
+      var aD = null;
+      try { aD = G('aD'); } catch (e) {}
+      if (typeof aD !== 'function') return toast('❌ Không thấy dữ liệu Làng');
+      var a = aD();
+      if (!a) return toast('❌ Không thấy dữ liệu Làng');
+      a.lech = 0;
+      a.kho = { gao: 50, vai: 50, cong: 50, tre: 50, lk: 50 };
+      a.no = 0;
+      dlcSaveNow();
+      toast('🌾 Độ lệch 0 · kho đầy · hết nợ làng');
+    }
+
+    function dlcReturnNow() {
+      var st = dlcState();
+      if (!st) return toast('❌ Chưa vào chuyến xuyên không');
+      var end = null;
+      try { end = G('dlcEnd'); } catch (e) {}
+      if (typeof end !== 'function') return toast('❌ Không thấy hàm trở về của game');
+      var ok = window.confirm('Trở về cuộc đời chính NGAY?\n\nBỏ qua yêu cầu 120 ngày và thử thách.\nPhần thưởng: đủ Hạng Vàng · đủ bí kíp · 1 tính năng đặc biệt.\nTrang sẽ tải lại về cuộc đời chính.');
+      if (!ok) return;
+      dlcMaxRank(true);
+      dlcOpenAllSo(true);
+      dlcLearnAllCards(true);
+      dlcFinishAllChallenges(true);
+      var st2 = dlcState() || st;
+      var d = st2.d, K = st2.K;
+      var sc = dlcScoreNow(st2);
+      var lv = 3;
+      try {
+        var rlv = G('dlcRankLv');
+        if (typeof rlv === 'function') lv = rlv(sc);
+      } catch (e) {}
+      var bk = (K.bk || []).map(function (b) { return b.id; });
+      var tn = null;
+      (K.tn || []).forEach(function (t) { if (!tn && t.ready !== false) tn = t; });
+      var soN = Object.keys(d.so || {}).length;
+      var ph = 0;
+      (K.ch || []).forEach(function (c) {
+        if (!c.main && d.ch[c.id] && d.ch[c.id].st === 'done') ph++;
+      });
+      var save = null;
+      try { save = G('save'); } catch (e) {}
+      end('done', {
+        rank: lv, sc: sc, bk: bk, tn: tn ? tn.id : '',
+        tt: d.tt, so: soN, ph: ph, k: (save && save.dlc && save.dlc.k) || ''
+      });
+    }
+
     function openMenu() {
       if (document.getElementById(MENU_ID)) {
         closeMenu();
@@ -2279,7 +2462,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.22</div>' +
+            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.23</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
@@ -2318,6 +2501,21 @@
         [turboOn ? '⚡ Tăng tốc: ĐANG BẬT' : '⚡ Tăng tốc: đang tắt', toggleTurbo, 'mdanTurboBtn'],
         [hideInbOn ? '✉️ Ẩn nút tin nhắn: ĐANG BẬT' : '✉️ Ẩn nút tin nhắn: đang tắt', toggleHideInb, 'mdanHideInbBtn']
       ];
+      if (dlcActive()) {
+        items.push(
+          [dlcStatusText(), function () { toast(dlcStatusText()); }],
+          ['🧠 Đủ ĐTT lên Hạng Vàng', function () { dlcMaxRank(false); }],
+          ['📖 Mở hết Sổ Tri Thức', function () { dlcOpenAllSo(false); }],
+          ['🎓 Học hết thẻ (miễn phí)', function () { dlcLearnAllCards(false); }],
+          ['🎯 Hoàn thành hết thử thách', function () { dlcFinishAllChallenges(false); }]
+        );
+        var _dlcSave = null;
+        try { _dlcSave = G('save'); } catch (e) {}
+        if (_dlcSave && _dlcSave.dlc && _dlcSave.dlc.k === 'a') {
+          items.push(['🌾 Làng quê: Độ lệch 0 + kho đầy + hết nợ', dlcScriptABoost]);
+        }
+        items.push(['🚪 Trở về ngay (full thưởng)', dlcReturnNow]);
+      }
       var list = card.querySelector('#mdanCheatList');
       items.forEach(function (item) {
         var label = item[0];
