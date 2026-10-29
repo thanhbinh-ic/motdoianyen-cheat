@@ -2051,7 +2051,9 @@
         lastFarmDay = curDay;
         autoMaxAllStats(true);
         autoDailyRoutine();
+        if (dlcActive()) { try { dlcDailyRoutine(); } catch (e) {} }
       }
+      if (dlcActive()) { if (dlcFarmStep()) return; }
       if (tryNoteAsk()) return;
       if (tryScamMp()) return;
       if (recruitStep()) return;
@@ -2425,6 +2427,209 @@
       });
     }
 
+
+    // ——— Xuyên không: menu riêng + Auto Farm chơi DLC (v3.24) ———
+    // Menu DLC chỉ gồm: trạng thái chuyến, mod DLC, và các mục thường còn chạy
+    // được trong DLC (family/health không nằm trong off-list của bất kỳ kịch
+    // bản nào; turbo là tốc độ toàn cục; auto farm là công tắc chính).
+    function dlcMenuItems() {
+      var items = [
+        [dlcStatusText(), function () { toast(dlcStatusText()); }],
+        ['🧠 Đủ ĐTT lên Hạng Vàng', function () { dlcMaxRank(false); }],
+        ['📖 Mở hết Sổ Tri Thức', function () { dlcOpenAllSo(false); }],
+        ['🎓 Học hết thẻ (miễn phí)', function () { dlcLearnAllCards(false); }],
+        ['🎯 Hoàn thành hết thử thách', function () { dlcFinishAllChallenges(false); }]
+      ];
+      var save = null;
+      try { save = G('save'); } catch (e) {}
+      if (save && save.dlc && save.dlc.k === 'a') {
+        items.push(['🌾 Làng quê: Độ lệch 0 + kho đầy + hết nợ', dlcScriptABoost]);
+      }
+      items.push(['🚪 Trở về ngay (full thưởng)', dlcReturnNow]);
+      items.push(
+        [autoFarmOn ? '🌾 Auto Farm & Vận hành tiệm: ĐANG BẬT' : '🌾 Auto Farm & Vận hành tiệm: đang tắt', toggleAutoFarm, 'mdanAutoFarmBtn'],
+        ['💪 Max sức khỏe', function () { maxHealth(false); }],
+        ['👪 Max mức thân gia đình', function () { maxFamilyThan(false); }],
+        [turboOn ? '⚡ Tăng tốc: ĐANG BẬT' : '⚡ Tăng tốc: đang tắt', toggleTurbo, 'mdanTurboBtn']
+      );
+      return items;
+    }
+
+    // Việc ngày của Làng quê qua hàm gốc aDo (không bấm DOM): ăn no trước,
+    // lo đủ gạo/vải/công trước ngày 30 (thử thách xuân), gia cố 5 nhà trước
+    // bão (ngày 55, Độ lệch ≤ 50), trả nợ từ ngày 61, dạy đủ 15 buổi, tích
+    // vải/công trước ngày 91 cho hành trình gửi thư. KHÔNG dùng "biết trước"
+    // (tăng Độ lệch); xem dấu hiệu trời (cần thẻ t1) thì miễn phí, an toàn.
+    function dlcScriptAWork() {
+      var save = null;
+      try { save = G('save'); } catch (e) {}
+      if (!save || !save.dlc || save.dlc.k !== 'a') return 0;
+      var aD = null, aDo = null, aLeft = null, has = null, dlD = null;
+      try { aD = G('aD'); aDo = G('aDo'); aLeft = G('aLeft'); has = G('dlcHas'); dlD = G('dlD'); } catch (e) {}
+      if (typeof aD !== 'function' || typeof aDo !== 'function' || typeof aLeft !== 'function') return 0;
+      var a = aD();
+      if (!a) return 0;
+      var S = null;
+      try { S = G('S') || {}; } catch (e) { S = {}; }
+      var day = S.day || 0;
+      try {
+        var d = (typeof dlD === 'function') ? dlD() : null;
+        if (typeof has === 'function' && has('t1') && d && !d.so.s_bao) aDo('qs');
+      } catch (e) {}
+      var FAILS = ['Hôm nay hết sức rồi', 'Chưa vào mùa hạ', 'Đủ 5 căn rồi', 'Chưa vào mùa thu', 'Hết nợ rồi', 'Chưa tới mùa', 'Thiếu hàng để đổi', 'Bạn chưa biết xem dấu hiệu', 'Thiếu 1 tre và 1 công'];
+      var n = 0;
+      for (var iter = 0; iter < 10; iter++) {
+        var left = 0;
+        try { left = aLeft(); } catch (e) { break; }
+        if (left <= 0) break;
+        a = aD();
+        if (!a) break;
+        var kho = a.kho || {};
+        var id = null;
+        if ((kho.gao || 0) < 3) id = 'v2';
+        else if (day < 30 && (kho.vai || 0) < 2) id = ((kho.cong || 0) >= 2) ? 'tr1' : 'v1';
+        else if (day < 30 && (kho.cong || 0) < 3) id = 'v1';
+        else if (day >= 31 && (a.nha || 0) < 5) id = ((kho.tre || 0) >= 1 && (kho.cong || 0) >= 1) ? 'v4' : (((kho.cong || 0) < 2) ? 'v1' : 'tr3');
+        else if (day >= 61 && (a.no || 0) > 0) id = 'v5';
+        else if (day >= 85 && (kho.vai || 0) < 2) id = ((kho.cong || 0) >= 2) ? 'tr1' : 'v1';
+        else if ((a.hoc || 0) < 15) id = 'v3';
+        else id = 'v1';
+        var res = '';
+        try { res = aDo(id) || ''; } catch (e) { break; }
+        var bad = false;
+        for (var fi = 0; fi < FAILS.length; fi++) { if (res.indexOf(FAILS[fi]) === 0) { bad = true; break; } }
+        if (bad) break;
+        n++;
+      }
+      return n;
+    }
+
+    // Routine DLC mỗi ngày (chạy trong cổng ngày của Auto Farm, cùng với
+    // bảo trì thường: max chỉ số, khám sức khỏe, hoạt động khác vẫn giữ).
+    function dlcDailyRoutine() {
+      var st = dlcState();
+      if (!st) return;
+      var d = st.d, K = st.K, S = null;
+      try { S = G('S') || {}; } catch (e) { S = {}; }
+      var day = S.day || 0;
+      var acts = [];
+      try { dlcMaxRank(true); } catch (e) {}
+      try {
+        var exp = G('dlcExplore');
+        var hasLeft = (K.so || []).some(function (e) { return !e.hid && !e.auto && !d.so[e.id]; });
+        if (typeof exp === 'function' && hasLeft && d.expDay !== day) { exp(); acts.push('tìm hiểu'); }
+      } catch (e) {}
+      try {
+        var ask = G('dlcAsk');
+        if (typeof ask === 'function') {
+          var nAsk = 0;
+          (K.npc || []).forEach(function (npc) {
+            if (d.ask[npc.id] == null || day - d.ask[npc.id] >= 2) {
+              try { var r = ask(npc.id); if (r && r.ok) nAsk++; } catch (err) {}
+            }
+          });
+          if (nAsk) acts.push('hỏi ' + nAsk + ' người');
+        }
+      } catch (e) {}
+      try {
+        var buy = G('dlcBuy');
+        if (typeof buy === 'function') {
+          var nBuy = 0;
+          (K.the || []).forEach(function (c) {
+            if (!d.the[c.id] && d.tt >= (c.cost || 0)) { try { if (buy(c.id)) nBuy++; } catch (err) {} }
+          });
+          if (nBuy) acts.push('học ' + nBuy + ' thẻ');
+        }
+      } catch (e) {}
+      try { dlcMaxRank(true); } catch (e) {}
+      try {
+        var done = G('dlcChDone'), state = G('dlcChState');
+        if (typeof done === 'function') {
+          var nCh = 0;
+          (K.ch || []).forEach(function (c) {
+            var isDone = false;
+            if (typeof state === 'function') { try { isDone = state(c) === 'done'; } catch (err) {} }
+            else isDone = !!(d.ch[c.id] && d.ch[c.id].st === 'done');
+            if (isDone) return;
+            var ready = false;
+            try { if (typeof c.cond === 'function' && c.cond()) ready = true; } catch (err) {}
+            try { if (!ready && typeof c.chkAuto === 'function' && c.chkAuto()) ready = true; } catch (err) {}
+            if (ready) { try { if (done(c.id)) nCh++; } catch (err) {} }
+          });
+          if (nCh) acts.push('xong ' + nCh + ' thử thách');
+        }
+      } catch (e) {}
+      try {
+        var nWork = dlcScriptAWork();
+        if (nWork) acts.push('làm ' + nWork + ' việc làng');
+      } catch (e) {}
+      try { dlcSaveNow(); } catch (e) {}
+      try { refreshUI(); } catch (e) {}
+      if (acts.length) toast('🌀 Auto Farm DLC: ' + acts.join(' · '));
+    }
+
+    // Nhận diện cảnh trong DLC_TXT qua nhãn nút (đã qua dtx như game vẽ):
+    // chỉ trả về khi khớp đúng 1 cảnh, tránh bấm nhầm.
+    function dlcIdentifyScene(btns, lab) {
+      try {
+        var TXT = G('DLC_TXT');
+        var dtx = G('dtx');
+        var save = G('save');
+        if (!TXT || !save || !save.dlc) return null;
+        var T = TXT[save.dlc.k];
+        if (!T || !T.ev) return null;
+        var labels = [];
+        for (var i = 0; i < btns.length; i++) labels.push(lab(btns[i]));
+        var found = null, count = 0;
+        (T.ev || []).forEach(function (ev) {
+          var ch = ev.ch || [];
+          if (ch.length !== labels.length) return;
+          var ok = true;
+          for (var j = 0; j < ch.length; j++) {
+            var want = ch[j].nhan;
+            try { if (typeof dtx === 'function') want = dtx(want); } catch (e) {}
+            if (want !== labels[j]) { ok = false; break; }
+          }
+          if (ok) { found = ev; count++; }
+        });
+        return count === 1 ? found : null;
+      } catch (e) { return null; }
+    }
+
+    // Xử lý hộp thoại DLC (#dlcM5) mỗi tick farm: màn 1 nút thì bấm cho qua
+    // (thông báo/nhận việc/chúc mừng); màn gọi thử thách có "Để sau" thì
+    // hoãn (không tự chạy thử thách tương tác, tránh chọn sai); màn cảnh
+    // gặp người thì chỉ trả lời khi xác định được là cảnh thường, còn điểm
+    // dừng hành trình hoặc không xác định được thì để huynh tự chọn.
+    // Hộp nhận thưởng (#dlcRw) không bao giờ tự bấm.
+    function dlcFarmStep() {
+      var m5 = null;
+      try { m5 = document.getElementById('dlcM5'); } catch (e) {}
+      if (!m5) return false;
+      var btns = [];
+      try {
+        var all = m5.querySelectorAll('button.evopt');
+        for (var i = 0; i < all.length; i++) { if (!all[i].disabled) btns.push(all[i]); }
+      } catch (e) { return false; }
+      if (!btns.length) return false;
+      var lab = function (b) {
+        try { if (b.firstChild && b.firstChild.textContent) return b.firstChild.textContent; } catch (e) {}
+        return b.textContent || '';
+      };
+      for (var j = 0; j < btns.length; j++) {
+        if (lab(btns[j]).indexOf('Để sau') >= 0) { try { btns[j].click(); } catch (e) {} return true; }
+      }
+      if (btns.length === 1) { try { btns[0].click(); } catch (e) {} return true; }
+      var eyebrow = '';
+      try { var eb = m5.querySelector('.eyebrow'); if (eb) eyebrow = eb.textContent || ''; } catch (e) {}
+      if (eyebrow.indexOf('Điểm dừng') >= 0) return false;
+      var scene = dlcIdentifyScene(btns, lab);
+      if (!scene) return false;
+      if (scene.dk && scene.dk.hanh_trinh) return false;
+      try { btns[0].click(); } catch (e) { return false; }
+      return true;
+    }
+
     function openMenu() {
       if (document.getElementById(MENU_ID)) {
         closeMenu();
@@ -2462,7 +2667,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">Một Đời An Yên v3.23</div>' +
+            '<div style="font:800 20px/1.2 system-ui">' + (dlcActive() ? '🌀 Menu Xuyên không' : 'Một Đời An Yên v3.24') + '</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
@@ -2501,21 +2706,7 @@
         [turboOn ? '⚡ Tăng tốc: ĐANG BẬT' : '⚡ Tăng tốc: đang tắt', toggleTurbo, 'mdanTurboBtn'],
         [hideInbOn ? '✉️ Ẩn nút tin nhắn: ĐANG BẬT' : '✉️ Ẩn nút tin nhắn: đang tắt', toggleHideInb, 'mdanHideInbBtn']
       ];
-      if (dlcActive()) {
-        items.push(
-          [dlcStatusText(), function () { toast(dlcStatusText()); }],
-          ['🧠 Đủ ĐTT lên Hạng Vàng', function () { dlcMaxRank(false); }],
-          ['📖 Mở hết Sổ Tri Thức', function () { dlcOpenAllSo(false); }],
-          ['🎓 Học hết thẻ (miễn phí)', function () { dlcLearnAllCards(false); }],
-          ['🎯 Hoàn thành hết thử thách', function () { dlcFinishAllChallenges(false); }]
-        );
-        var _dlcSave = null;
-        try { _dlcSave = G('save'); } catch (e) {}
-        if (_dlcSave && _dlcSave.dlc && _dlcSave.dlc.k === 'a') {
-          items.push(['🌾 Làng quê: Độ lệch 0 + kho đầy + hết nợ', dlcScriptABoost]);
-        }
-        items.push(['🚪 Trở về ngay (full thưởng)', dlcReturnNow]);
-      }
+      if (dlcActive()) { items = dlcMenuItems(); }
       var list = card.querySelector('#mdanCheatList');
       items.forEach(function (item) {
         var label = item[0];
