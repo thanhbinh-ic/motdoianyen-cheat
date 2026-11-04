@@ -1492,9 +1492,12 @@
         var nc = K.nc;
         if (nc.b) return null; // dang thi cong hang muc khac
         var keys = Object.keys(K1.nc);
+        var ncMax = G('ncMax13');
         for (var i = 0; i < keys.length; i++) {
           var x = keys[i], lv = nc[x] || 0;
-          if (lv >= 3) continue;
+          var mx = 3;
+          try { if (typeof ncMax === 'function') mx = ncMax(x) || 3; } catch (e) {}
+          if (lv >= mx) continue;
           var c = Math.round(k.von * K1.ncCost[lv] / 1e5) * 1e5;
           if (!save || save.money < c) continue;
           var ds = K1.ncDays[lv];
@@ -2052,6 +2055,7 @@
         autoMaxAllStats(true);
         autoDailyRoutine();
         if (dlcActive()) { try { dlcDailyRoutine(); } catch (e) {} }
+        else { try { muFarmStep(); } catch (e) {} try { mtFarmStep(); } catch (e) {} }
       }
       if (dlcActive()) { if (dlcFarmStep()) return; }
       if (tryNoteAsk()) return;
@@ -2523,7 +2527,11 @@
         var ask = G('dlcAsk');
         if (typeof ask === 'function') {
           var nAsk = 0;
+          var askCap = 8;
+          try { var ac = G('DLC_ASKCAP'); if (typeof ac === 'number') askCap = ac; } catch (e) {}
+          var askN = d.askN || {};
           (K.npc || []).forEach(function (npc) {
+            if ((askN[npc.id] || 0) >= askCap) return;
             if (d.ask[npc.id] == null || day - d.ask[npc.id] >= 2) {
               try { var r = ask(npc.id); if (r && r.ok) nAsk++; } catch (err) {}
             }
@@ -2626,8 +2634,135 @@
       var scene = dlcIdentifyScene(btns, lab);
       if (!scene) return false;
       if (scene.dk && scene.dk.hanh_trinh) return false;
-      try { btns[0].click(); } catch (e) { return false; }
+      var bi = dlcSceneBestIndex(btns, lab, scene);
+      try { btns[bi].click(); } catch (e) { return false; }
       return true;
+    }
+
+
+    // ——— Game 2.1.3: Thử thách theo mùa + Mục tiêu đời (chỉ chạy ngoài DLC) ———
+    // Theo mùa: mỗi ngày 1 việc nhỏ. Farm làm đúng như muOpen: muEnsure gieo
+    // việc cho mùa/lễ hiện tại, chọn việc chưa làm đầu tiên, đánh dấu xong,
+    // trừ 3 căng thẳng công việc, ghi nhật ký. Mùa hết mà việc chưa xong thì
+    // game tự đóng mùa (muDaily), nên làm đều mỗi ngày là đủ.
+    function muFarmStep() {
+      try {
+        if (dlcActive()) return 0;
+        var muEnsure = G('muEnsure'), muaNow = G('muaNow'), muGet = G('muGet');
+        if (typeof muEnsure !== 'function' || typeof muaNow !== 'function') return 0;
+        var st = muEnsure();
+        if (!st) return 0;
+        var S = G('S') || {};
+        if (st.last === (S.day || 0)) return 0;
+        var seasons = muaNow();
+        for (var si = 0; si < seasons.length; si++) {
+          var P = st.p[seasons[si].key];
+          if (!P) continue;
+          for (var ii = 0; ii < P.ids.length; ii++) {
+            var id = P.ids[ii];
+            if (P.done[id]) continue;
+            var o = null;
+            try { if (typeof muGet === 'function') o = muGet(id); } catch (e) {}
+            if (!o) continue;
+            P.done[id] = S.day || 0;
+            st.last = S.day || 0;
+            try { var jAdd = G('jAdd'); if (typeof jAdd === 'function') jAdd('🍃 ' + o.ten + '. ' + (o.xong || ''), 'good'); } catch (e) {}
+            try { var W = S.work; if (W && typeof W.ct === 'number') W.ct = Math.max(0, Math.min(100, W.ct - 3)); } catch (e) {}
+            try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+            try { toast('🍃 Theo mùa: ' + o.ten); } catch (e) {}
+            return 1;
+          }
+        }
+      } catch (e) {}
+      return 0;
+    }
+
+    // Mục tiêu đời: farm CHỈ chọn mục tiêu đã đủ điều kiện ngay rồi gọi
+    // mtCheck để ghi đạt tức thì. Không chọn mục cần cưới/con/mua nhà/du
+    // lịch mà farm không làm được, tránh ghi "Lỡ mục tiêu" sau 1095 ngày.
+    // Tối đa MT_MAX=3 mục cùng lúc; không đụng mục huynh tự chọn.
+    function mtFarmStep() {
+      try {
+        if (dlcActive()) return 0;
+        var mtSt = G('mtSt'), mtList = G('mtList'), mtOk = G('mtOk'), mtTx = G('mtTx'), mtCheck = G('mtCheck');
+        if (typeof mtSt !== 'function' || typeof mtList !== 'function' || typeof mtOk !== 'function') return 0;
+        var M = mtSt();
+        if (!M) return 0;
+        var max = 3;
+        try { var mm = G('MT_MAX'); if (typeof mm === 'number') max = mm; } catch (e) {}
+        if ((M.act || []).length >= max) return 0;
+        var picked = 0;
+        var list = mtList();
+        for (var i = 0; i < list.length; i++) {
+          if ((M.act || []).length >= max) break;
+          var o = list[i];
+          if (!o || !o.key) continue;
+          if (M.act.indexOf(o.key) >= 0 || M.dat[o.key] || M.lo[o.key]) continue;
+          var ok = false;
+          try { ok = mtOk(o); } catch (e) { ok = false; }
+          if (!ok) continue;
+          M.act.push(o.key);
+          try { var S = G('S') || {}; M.d0[o.key] = S.day || 0; } catch (e) {}
+          try { var jAdd = G('jAdd'), tx = ''; if (typeof mtTx === 'function') tx = mtTx(o, 'dang_tien'); if (typeof jAdd === 'function') jAdd('🎯 Mục tiêu đời mới: ' + o.ten + '. ' + tx, 'good'); } catch (e) {}
+          picked++;
+        }
+        if (picked) {
+          try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+          try { if (typeof mtCheck === 'function') mtCheck(); } catch (e) {}
+          try { toast('🎯 Mục tiêu đời: nhận ' + picked + ' mục đã đủ điều kiện'); } catch (e) {}
+        }
+        return picked;
+      } catch (e) { return 0; }
+    }
+
+    // Cảnh DLC 2.1.3 có hậu quả (hq): thiện cảm/ĐTT/Sổ/manh mối, mức 'tru'
+    // là trừ điểm. Farm chấm từng lựa chọn theo đúng bảng HQ3 của game và
+    // bấm lựa tốt nhất; hòa thì giữ lựa đầu (như bản cũ khi chưa có hq).
+    function dlcSceneBestIndex(btns, lab, scene) {
+      try {
+        var TXT = G('DLC_TXT');
+        var HQ3 = G('HQ3');
+        var dtx = G('dtx');
+        var save = G('save');
+        if (!TXT || !save || !save.dlc) return 0;
+        var T = TXT[save.dlc.k];
+        if (!T) return 0;
+        var hq = T.hq || {};
+        var ch = scene.ch || [];
+        var best = 0, bestScore = -Infinity;
+        for (var bi = 0; bi < btns.length; bi++) {
+          var want = lab(btns[bi]);
+          var choice = null;
+          for (var ci = 0; ci < ch.length; ci++) {
+            var nm = ch[ci].nhan;
+            try { if (typeof dtx === 'function') nm = dtx(nm); } catch (e) {}
+            if (nm === want) { choice = ch[ci]; break; }
+          }
+          var score = 0;
+          if (choice && HQ3) {
+            var R = hq[choice.id] || { l: 'thien_cam', m: 'nhe' };
+            var m = ['nhe', 'vua', 'nang', 'tru'].indexOf(R.m) >= 0 ? R.m : 'nhe';
+            var npc = scene.dk && scene.dk.npc;
+            if (R.l === 'thien_cam') score = npc ? (HQ3.tc[m] || 0) : 0;
+            else if (R.l === 'dtt') {
+              var v = HQ3.dtt[m] || 0;
+              if (v > 0) {
+                var d = null;
+                try { var dlD = G('dlD'); if (typeof dlD === 'function') d = dlD(); } catch (e) {}
+                var used = (d && d.sc && d.sc.dtt) || 0;
+                var cap = HQ3.dttCap || 20;
+                v = Math.max(0, Math.min(v, cap - used));
+              }
+              score = v * 10;
+            }
+            else if (R.l === 'so') score = (HQ3.soN[m] || 0) * 5;
+            else if (R.l === 'manh_moi') score = 3 + (HQ3.goiDtt[m] || 0) * 10;
+            else score = 0;
+          }
+          if (score > bestScore) { bestScore = score; best = bi; }
+        }
+        return best;
+      } catch (e) { return 0; }
     }
 
     function openMenu() {
@@ -2667,7 +2802,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">' + (dlcActive() ? '🌀 Menu Xuyên không' : 'Một Đời An Yên v3.24') + '</div>' +
+            '<div style="font:800 20px/1.2 system-ui">' + (dlcActive() ? '🌀 Menu Xuyên không' : 'Một Đời An Yên v3.25') + '</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
