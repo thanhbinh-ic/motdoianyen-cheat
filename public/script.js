@@ -61,6 +61,7 @@
     let sceneSkipWrapped = false;
     try { autoDayOn = localStorage.getItem('mdanAutoDay') === '1'; } catch (e) {}
     let lastFarmDay = -1;
+    let certExamBusy = false; // dang thi chung chi (keo goi lai certExam)
     let hideInbOn = false;
     try { hideInbOn = localStorage.getItem('mdanHideInb') === '1'; } catch (e) {}
 
@@ -2055,7 +2056,7 @@
         autoMaxAllStats(true);
         autoDailyRoutine();
         if (dlcActive()) { try { dlcDailyRoutine(); } catch (e) {} }
-        else { try { muFarmStep(); } catch (e) {} try { mtFarmStep(); } catch (e) {} }
+        else { try { muFarmStep(); } catch (e) {} try { mtFarmStep(); } catch (e) {} try { certFarmStep(); } catch (e) {} }
       }
       if (dlcActive()) { if (dlcFarmStep()) return; }
       if (tryNoteAsk()) return;
@@ -2133,6 +2134,8 @@
         }
       } catch (e) {}
 
+      if (!dlcActive()) { try { if (tryCertExam()) return; } catch (e) {} }
+
       var dlg = document.getElementById('dialog');
       if (dlg && !dlg.hidden) {
         var dlgAct = dayEndAction(dlg.textContent || '', autoDayOn);
@@ -2148,6 +2151,9 @@
           });
           if (nBtn) { nBtn.click(); return; }
         }
+        var certAns = certExamAnswer(dlg);
+        if (certAns === 'exam') return; // dang thi ma chua xac dinh duoc dap an: de huynh tu chon
+        if (certAns && !certAns.disabled) { certAns.click(); return; }
         var planDlgBtn = dlg.querySelector('button[data-act*="plan"], button[data-act*="chot"], button[data-act*="kd"]');
         if (planDlgBtn && !planDlgBtn.disabled) {
           planDlgBtn.click();
@@ -2765,6 +2771,216 @@
       } catch (e) { return 0; }
     }
 
+
+    // ——— v3.26 (game 2.1.4) ———
+    // Hai nghe moi: Pha che (PC) va Kien truc su (KTS). Moi nghe co 2 moi truong
+    // 'vp' (cong ty / quan) va 'fl' (tu do). Doi nghe qua ham cua game
+    // switchCareer (van hien hop xac nhan cua game, bat dau lai tu bac 1).
+    // Chung chi nghe: CERT5.pc (10tr, 6 ngay) / CERT5.kts (12tr, 7 ngay);
+    // bat buoc de nhan du an / cong trinh lon tu bac 4. Farm tu dang ky khi
+    // du tien, toi ngay thi thi goi certExam va tra loi 3 cau theo certQs
+    // (dap an dung la q[1] trong du lieu cau hoi cua game).
+    // Quán bar anh Dev: R5().bar.cups = [{t,m,d,ten,loi,kind}] — 16 ly
+    // (4 chu de cv/tc/gd/cs x 4 tam trang 0..3). Mo het = ghi du 16 ly +
+    // anh Album (qua barAlbum, kem danh hieu) + dat v>=5 de Dev nho khach quen.
+    function switchCareerMod(ng, env) {
+      if (!needAlive()) return;
+      if (dlcActive()) return toast('🔀 Đổi nghề chỉ có ở cuộc đời chính');
+      var CAREERS = G('CAREERS');
+      if (!CAREERS || !CAREERS[ng]) return toast('❌ Chưa thấy nghề này (cần game 2.1.4)');
+      var S = G('S');
+      var workInit = G('workInit');
+      try { if (typeof workInit === 'function') workInit(); } catch (e) {}
+      var W = S && S.work;
+      if (!W) return toast('❌ Chưa có dữ liệu công việc');
+      if (W.nganh === ng && (W.env || 'vp') === env) return toast('🔀 Đang làm nghề này rồi');
+      var switchCareer = G('switchCareer');
+      if (typeof switchCareer !== 'function') return toast('❌ Không thấy chức năng đổi nghề');
+      closeMenu(); // hop xac nhan cua game nam o #dialog, phai dong menu truoc
+      try {
+        var p = switchCareer(ng, env);
+        if (p && typeof p.catch === 'function') p.catch(function (e) {
+          var ABORT = null; try { ABORT = G('ABORT'); } catch (e2) {}
+          if (ABORT != null && e === ABORT) return;
+          toast('❌ Lỗi đổi nghề: ' + (e && e.message ? e.message : e));
+        });
+      } catch (e) { toast('❌ Lỗi đổi nghề: ' + (e && e.message ? e.message : e)); }
+    }
+
+    function barUnlockAll() {
+      if (!needAlive()) return;
+      if (dlcActive()) return toast('🍸 Quán bar chỉ có ở cuộc đời chính');
+      var barSt = G('barSt'), barDrink = G('barDrink'), barAlbum = G('barAlbum');
+      if (typeof barSt !== 'function' || typeof barDrink !== 'function') {
+        return toast('❌ Chưa thấy quán bar (cần game 2.1.4)');
+      }
+      var S = G('S');
+      var st = null;
+      try { st = barSt(); } catch (e) { st = null; }
+      if (!st || !st.cups) return toast('❌ Chưa thấy Sổ ly');
+      var adult = true;
+      try { var barAdult = G('barAdult'); if (typeof barAdult === 'function') adult = !!barAdult(); } catch (e) {}
+      var topics = ['cv', 'tc', 'gd', 'cs'];
+      var added = 0;
+      topics.forEach(function (t) {
+        for (var m = 0; m < 4; m++) {
+          var has = false;
+          for (var i = 0; i < st.cups.length; i++) {
+            if (st.cups[i].t === t && st.cups[i].m === m) { has = true; break; }
+          }
+          if (has) continue;
+          var d = null;
+          try { d = barDrink(t, m, adult); } catch (e) { d = null; }
+          if (!d) continue;
+          var c = { t: t, m: m, d: (S && S.day) || 0, ten: d.ten, loi: d.loi, kind: d.kind };
+          st.cups.push(c);
+          added++;
+          try { if (typeof barAlbum === 'function') barAlbum(c); } catch (e) {}
+        }
+      });
+      // Giu moi to hop t+m mot lan (game tu cat 80 ly, cat cu co the mat ly hiem).
+      var seen = {}, uniq = [];
+      st.cups.forEach(function (c) {
+        var k = c.t + '_' + c.m;
+        if (seen[k]) return;
+        seen[k] = 1; uniq.push(c);
+      });
+      st.cups = uniq;
+      if ((st.v || 0) < 5) st.v = 5; // Dev nho khach quen (moc lan5)
+      try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+      try { refreshUI(); } catch (e) {}
+      toast('🍸 Sổ ly: đã mở hết 16 ly' + (added ? ' (+' + added + ' ly mới)' : ' (đủ từ trước)') + ' · Dev đã nhớ khách quen');
+    }
+
+    function certFarmStep() {
+      try {
+        if (dlcActive()) return 0;
+        var S = G('S');
+        if (!S || !S.alive || !S.work) return 0;
+        var W = S.work;
+        if (W.unemp || !W.nganh || (W.nganh !== 'PC' && W.nganh !== 'KTS')) return 0;
+        var CERT5 = G('CERT5');
+        if (!CERT5) return 0;
+        var key = W.nganh === 'PC' ? 'pc' : 'kts';
+        var c = CERT5[key];
+        if (!c) return 0;
+        var certSt = G('certSt');
+        if (typeof certSt !== 'function') return 0;
+        var C = certSt();
+        if (!C) return 0;
+        var cur = C[key];
+        if (cur && (cur.st === 'co' || cur.st === 'hoc')) return 0;
+        if (cur && cur.st === 'rot' && cur.cho) return 0; // dang cho diem thi
+        var invDay = G('invDay');
+        var today = 0;
+        try { today = typeof invDay === 'function' ? invDay() : (S.day || 0); } catch (e) { today = S.day || 0; }
+        if (cur && cur.st === 'rot' && cur.retry != null && today < cur.retry) return 0; // chua toi ngay thi lai
+        var fee = c.fee;
+        if (cur && cur.st === 'rot') fee = Math.round(fee / 2); // thi lai nua gia (nhu certEnroll)
+        var save = G('save');
+        if (!save || save.money < fee) return 0;
+        // Giong het certEnroll nhung khong mo hop xac nhan.
+        save.money -= fee;
+        C[key] = { st: 'hoc', until: today + (c.days || 6) };
+        if (W && typeof W.ct === 'number') W.ct = Math.max(0, Math.min(100, W.ct + 8));
+        try {
+          var jAdd = G('jAdd'), fmtM = G('fmtM');
+          var feeTxt = (typeof fmtM === 'function') ? fmtM(fee) : String(fee);
+          if (typeof jAdd === 'function') jAdd('🎓 Đăng ký học ' + c.n + ' (−' + feeTxt + '). Ngày ' + ((S.day || 0) + (c.days || 6)) + ' thi.', '');
+        } catch (e) {}
+        try { var persist = G('persist'); if (typeof persist === 'function') persist(); } catch (e) {}
+        try { toast('🎓 Auto Farm: đăng ký ' + c.n); } catch (e) {}
+        return 1;
+      } catch (e) {}
+      return 0;
+    }
+
+    function tryCertExam() {
+      try {
+        if (dlcActive()) return 0;
+        var S = G('S');
+        if (!S || !S.alive || !S.work) return 0;
+        var W = S.work;
+        if (W.unemp || !W.nganh || (W.nganh !== 'PC' && W.nganh !== 'KTS')) return 0;
+        var key = W.nganh === 'PC' ? 'pc' : 'kts';
+        var certSt = G('certSt');
+        if (typeof certSt !== 'function') return 0;
+        var C = certSt();
+        if (!C) return 0;
+        var cur = C[key];
+        if (!cur || cur.st !== 'hoc' || cur.until == null) { certExamBusy = false; return 0; }
+        if (certExamBusy) return 0;
+        var dlg0 = document.getElementById('dialog');
+        if (dlg0 && !dlg0.hidden) return 0; // dang co hop thoai khac: khong chen ngang
+        var invDay = G('invDay');
+        var today = 0;
+        try { today = typeof invDay === 'function' ? invDay() : (S.day || 0); } catch (e) { today = S.day || 0; }
+        if (today < cur.until) return 0;
+        var certExam = G('certExam');
+        if (typeof certExam !== 'function') return 0;
+        certExamBusy = true;
+        var p = null;
+        try { p = certExam(key); } catch (e) { certExamBusy = false; return 0; }
+        if (p && typeof p.then === 'function') {
+          p.then(function () { certExamBusy = false; }, function () { certExamBusy = false; });
+        } else { certExamBusy = false; }
+        return 1;
+      } catch (e) {}
+      return 0;
+    }
+
+    // Tra ve nut dap an dung cua hop thoai thi chung chi, null neu khong phai
+    // hop thoai thi, hoac 'exam' neu dung la hop thoai thi nhung khong xac
+    // dinh duoc dap an (de farm dung yen, huynh tu chon).
+    function certExamAnswer(dlg) {
+      try {
+        var card = dlg.querySelector('.card');
+        if (!card) return null;
+        var h2 = card.querySelector('h2');
+        if (!h2) return null;
+        var t = (h2.textContent || '').trim();
+        if (t.indexOf('📝 Câu') !== 0) return null;
+        var eb = card.querySelector('.eyebrow');
+        var ebT = eb ? (eb.textContent || '').trim() : '';
+        if (ebT.indexOf('Thi ') !== 0) return null;
+        var certName = ebT.slice(4).trim();
+        var CERT5 = G('CERT5');
+        if (!CERT5) return 'exam';
+        var key = null;
+        Object.keys(CERT5).forEach(function (k) {
+          if (CERT5[k] && CERT5[k].n === certName) key = k;
+        });
+        if (!key) return 'exam';
+        var certQs = G('certQs');
+        if (typeof certQs !== 'function') return 'exam';
+        var qs = certQs(key);
+        if (!qs || !qs.length) return 'exam';
+        var bodyP = null;
+        var ps = card.querySelectorAll('p');
+        for (var i = 0; i < ps.length; i++) {
+          if (!ps[i].classList.contains('eyebrow')) { bodyP = ps[i]; break; }
+        }
+        if (!bodyP) return 'exam';
+        var qText = (bodyP.textContent || '').trim();
+        var correct = null;
+        for (var j = 0; j < qs.length; j++) {
+          if (qs[j] && (qs[j][0] || '').trim() === qText) { correct = qs[j][1]; break; }
+        }
+        if (!correct) return 'exam';
+        var btns = dlg.querySelectorAll('.evopt');
+        for (var b = 0; b < btns.length; b++) {
+          var sp = btns[b].querySelector('span');
+          var lab = sp ? (sp.textContent || '').trim() : (btns[b].textContent || '').trim();
+          if (lab === correct) return btns[b];
+        }
+        for (var b2 = 0; b2 < btns.length; b2++) {
+          if ((btns[b2].textContent || '').indexOf(correct) >= 0) return btns[b2];
+        }
+        return 'exam';
+      } catch (e) {}
+      return null;
+    }
+
     function openMenu() {
       if (document.getElementById(MENU_ID)) {
         closeMenu();
@@ -2802,7 +3018,7 @@
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">' +
           '<div>' +
             '<div style="font:800 11px/1.2 system-ui;letter-spacing:.08em;color:#9a7a66;text-transform:uppercase">Cheat Menu</div>' +
-            '<div style="font:800 20px/1.2 system-ui">' + (dlcActive() ? '🌀 Menu Xuyên không' : 'Một Đời An Yên v3.25') + '</div>' +
+            '<div style="font:800 20px/1.2 system-ui">' + (dlcActive() ? '🌀 Menu Xuyên không' : 'Một Đời An Yên v3.26') + '</div>' +
           '</div>' +
           '<button type="button" data-act="close" style="border:2px solid #3d2a22;background:#f3e3c8;border-radius:999px;padding:8px 14px;font:800 14px system-ui;color:#3d2a22">Đóng</button>' +
         '</div>' +
@@ -2825,6 +3041,11 @@
         ['💘 Hẹn hò người nổi tiếng', dateCeleb],
         ['🎓 Max bằng cấp', maxCerts],
         ['👔 Cấp bậc công việc…', setJobLevel],
+        ['🔀 Đổi sang Pha chế (công ty)', function () { switchCareerMod('PC', 'vp'); }],
+        ['🔀 Đổi sang Pha chế (tự do)', function () { switchCareerMod('PC', 'fl'); }],
+        ['🔀 Đổi sang Kiến trúc sư (công ty)', function () { switchCareerMod('KTS', 'vp'); }],
+        ['🔀 Đổi sang Kiến trúc sư (tự do)', function () { switchCareerMod('KTS', 'fl'); }],
+        ['🍸 Mở hết Sổ ly (quán bar)', barUnlockAll],
         ['🏪 Set doanh thu tiệm…', setShopRevenue],
         ['⭐ Max Đánh giá & Vận hành tiệm', function () { maxShopStat(false); }],
         ['🛍️ Mua full tất cả item cửa hàng', buyFullShop],
